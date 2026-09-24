@@ -25,6 +25,24 @@ const int HEIGHT = 720;
 
 bool whiteBackground = false;
 
+const char* vertexSrc = R"(
+#version 330 core
+layout (location = 0) in vec3 aPos;
+
+void main() {
+    gl_Position = vec4(aPos, 1.0);
+}
+)";
+
+const char* fragmentSrc = R"(
+#version 330 core
+out vec4 FragColor;
+
+void main() {
+    FragColor = vec4(1.0, 0.5, 0.2, 1.0);
+}
+)";
+
 // ---------------------------------------------------------------------
 //  Терезе өлшемі өзгергенде шақырылады
 // ---------------------------------------------------------------------
@@ -98,8 +116,48 @@ int main() {
 
 
     // === 2-АПТА: осында үшбұрыштың деректері мен буферлері қосылады ===
+    // Вершина деректері — NDC координаттарында (-1 .. 1)
+    float vertices[] = {
+        -0.5f, -0.5f, 0.0f,
+        0.5f, -0.5f, 0.0f,
+        0.0f,  0.5f, 0.0f
+    };
+
+    unsigned int vao, vbo;
+
+    glGenVertexArrays(1, &vao);
+    glGenBuffers(1, &vbo);
+
+    glBindVertexArray(vao);
+
+    glBindBuffer(GL_ARRAY_BUFFER, vbo);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(vertices),
+                vertices, GL_STATIC_DRAW);
+
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE,
+                        3 * sizeof(float), (void*)0);
+
+    glEnableVertexAttribArray(0);
+
+    glBindVertexArray(0);
 
     // === 3-АПТА: осында шейдерлер компиляцияланады ===
+    unsigned int vs = glCreateShader(GL_VERTEX_SHADER);
+    glShaderSource(vs, 1, &vertexSrc, nullptr);
+    glCompileShader(vs);
+
+    unsigned int fs = glCreateShader(GL_FRAGMENT_SHADER);
+    glShaderSource(fs, 1, &fragmentSrc, nullptr);
+    glCompileShader(fs);
+
+    unsigned int shader = glCreateProgram();
+
+    glAttachShader(shader, vs);
+    glAttachShader(shader, fs);
+    glLinkProgram(shader);
+
+    glDeleteShader(vs);
+    glDeleteShader(fs);
 
 
     // -----------------------------------------------------------------
@@ -136,6 +194,9 @@ int main() {
         glClear(GL_COLOR_BUFFER_BIT);
 
         // === 2-АПТА: осында сызу командасы қосылады ===
+        glUseProgram(shader);
+        glBindVertexArray(vao);
+        glDrawArrays(GL_TRIANGLES, 0, 3);
 
         glfwSwapBuffers(window);   // дайын кадрды экранға шығару
         glfwPollEvents();          // пернетақта/тінтуір оқиғаларын өңдеу
@@ -143,6 +204,9 @@ int main() {
 
     // -----------------------------------------------------------------
     //  5. Тазалау
+    glDeleteVertexArrays(1, &vao);
+    glDeleteBuffers(1, &vbo);
+    glDeleteProgram(shader);
     // -----------------------------------------------------------------
     // === 2-АПТА: осында буферлер өшіріледі ===
 
