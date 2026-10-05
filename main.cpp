@@ -4,11 +4,11 @@
 //  Бұл файл семестр бойы өседі. Әр аптада жаңа бөлік қосылады,
 //  ескісі орнында қалады. Аптаның соңында:
 //
-//      git add . && git commit -m "week03" && git tag week03 && git push --tags
+//      git add . && git commit -m "week04" && git tag week04 && git push --tags
 //
 //  Тег арқылы кез келген аптадағы күйге қайта оралуға болады.
 //
-//  Қазіргі күйі: 3-АПТА — шейдерлер және GLSL
+//  Қазіргі күйі: 4-АПТА — uniform және анимация (delta time)
 // =====================================================================
 
 #include <glad/gl.h>      // МІНДЕТТІ: glad әрқашан GLFW-дан БҰРЫН
@@ -25,16 +25,23 @@ const int HEIGHT = 720;
 
 bool  whiteBackground = false;
 
+// === 4-АПТА: анимация жылдамдығы (радиан/секунд) — W/S өзгертеді ===
+float speed = 1.5f;
+
 // === 3-АПТА: вершина шейдері енді түсті де қабылдайды ===
 // Назар: #version жолдың ЕҢ БІРІНШІ символынан басталуы керек.
 const char* vertexSrc = R"(#version 330 core
 layout (location = 0) in vec3 aPos;
 layout (location = 1) in vec3 aColor;
 
+// === 4-АПТА: CPU-дан келетін мәндер ===
+uniform vec2  uOffset;
+uniform float uScale;
+
 out vec3 vColor;
 
 void main() {
-    gl_Position = vec4(aPos, 1.0);
+    gl_Position = vec4(aPos.xy * uScale + uOffset, aPos.z, 1.0);
     vColor = aColor;
 }
 )";
@@ -99,14 +106,23 @@ void onResize(GLFWwindow*, int width, int height) {
 
 // ---------------------------------------------------------------------
 //  Пернетақтаны тексеру. Әр кадрда шақырылады.
+//  4-апта: dt қосылды — W/S жеделдету болғандықтан dt МІНДЕТТІ.
 // ---------------------------------------------------------------------
-void processInput(GLFWwindow* window) {
+void processInput(GLFWwindow* window, float dt) {
     if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS) {
         glfwSetWindowShouldClose(window, true);
     }
 
     if (glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS) {
         whiteBackground = true;
+    }
+
+    // === 4-АПТА: W/S — жылдамдықты басқару (секундына 2 рад/сек өзгереді) ===
+    if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS) {
+        speed += 2.0f * dt;
+    }
+    if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS) {
+        speed -= 2.0f * dt;
     }
 }
 
@@ -197,6 +213,14 @@ int main() {
     // === 3-АПТА: шейдерлер енді makeShader() арқылы (16 жол -> 1 жол) ===
     unsigned int shader = makeShader(vertexSrc, fragmentSrc);
 
+    // === 4-АПТА: uniform орнын цикл алдында БІР РЕТ табамыз ===
+    int locOffset = glGetUniformLocation(shader, "uOffset");
+    int locScale  = glGetUniformLocation(shader, "uScale");
+
+    // === 4-АПТА: уақыт және анимация күйі ===
+    float lastFrame = (float)glfwGetTime();   // НАЗАР: нөл емес!
+    float angle = 0.0f;                       // шеңбердегі орын (радиан)
+
     // -----------------------------------------------------------------
     //  4. Негізгі цикл
     // -----------------------------------------------------------------
@@ -205,22 +229,32 @@ int main() {
 
     while (!glfwWindowShouldClose(window)) {
 
-        processInput(window);
+        // --- уақыт (4-апта: delta time) ---
+        float now = (float)glfwGetTime();
+        float dt  = now - lastFrame;
+        lastFrame = now;
 
+        // --- FPS (1-апта) ---
         frameCount++;
-
-        double currentTime = glfwGetTime();
-
-        if (currentTime - fpsTimer >= 1.0) {
-            std::cout << "FPS: " << frameCount << "\n";
+        if (now - fpsTimer >= 1.0) {
+            std::cout << "FPS: " << frameCount
+                      << "  speed: " << speed << " рад/с\n";
             frameCount = 0;
-            fpsTimer = currentTime;
+            fpsTimer = now;
         }
 
-        // --- Экранды тазалау ---
-        float t = (float)glfwGetTime();
-        float r = (std::sin(t * 2.0f) + 1.0f) * 0.5f * 0.3f;
-        float g = (std::sin(t * 1.5f) + 1.0f) * 0.5f * 0.3f;
+        // ================= ЖАҢАРТУ: күйді есептеу =================
+        processInput(window, dt);
+        angle += speed * dt;      // тапсырма: dt-ны алып тастап, көршімен салыстыр
+
+        float offsetX = std::cos(angle) * 0.4f;   // радиус 0.4 — NDC шекарасына тимейді
+        float offsetY = std::sin(angle) * 0.4f;
+        float scale   = 0.75f + 0.25f * std::sin(now * 3.0f);  // пульсация
+
+        // ================= СЫЗУ: күйді көрсету =================
+        // --- Экранды тазалау (1-апта) ---
+        float r = (std::sin(now * 2.0f) + 1.0f) * 0.5f * 0.3f;
+        float g = (std::sin(now * 1.5f) + 1.0f) * 0.5f * 0.3f;
 
         if (whiteBackground) {
             glClearColor(1.0f, 1.0f, 1.0f, 1.0f);
@@ -231,7 +265,9 @@ int main() {
         glClear(GL_COLOR_BUFFER_BIT);
 
         // === 2-АПТА: сызу командасы ===
-        glUseProgram(shader);
+        glUseProgram(shader);                       // 1. АЛДЫМЕН осы!
+        glUniform2f(locOffset, offsetX, offsetY);   // 3. мән жіберу
+        glUniform1f(locScale, scale);
         glBindVertexArray(vao);
         glDrawArrays(GL_TRIANGLES, 0, 3);
 
@@ -266,4 +302,12 @@ int main() {
 //  3. Шейдерге әдейі қате жаз (мысалы, `float x = 1;` немесе `;` алып таста)
 //     -> консольде makeShader() жариялаған қате хабарламасын оқы.
 //     Жол нөмірі #version жолынан саналады.
+// =====================================================================
+
+// =====================================================================
+//  4-АПТА ТАПСЫРМАЛАРЫ (семинар 4: шеңбер бойымен қозғалу)
+//  1. dt-ны алып тастап (angle += speed * 0.02f;), көршімен салыстыр:
+//     FPS әртүрлі -> жылдамдық әртүрлі.
+//  2. uScale қосып, пульсация жасау — орындалды (scale, sin(now * 3.0)).
+//  3. W/S-пен жылдамдықты басқару — орындалды (processInput ішінде, dt-мен).
 // =====================================================================
