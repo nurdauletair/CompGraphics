@@ -4,11 +4,11 @@
 //  Бұл файл семестр бойы өседі. Әр аптада жаңа бөлік қосылады,
 //  ескісі орнында қалады. Аптаның соңында:
 //
-//      git add . && git commit -m "week04" && git tag week04 && git push --tags
+//      git add . && git commit -m "week05" && git tag week05 && git push --tags
 //
 //  Тег арқылы кез келген аптадағы күйге қайта оралуға болады.
 //
-//  Қазіргі күйі: 4-АПТА — uniform және анимация (delta time)
+//  Қазіргі күйі: 5-АПТА — индекс буфері (EBO), төртбұрыш
 // =====================================================================
 
 #include <glad/gl.h>      // МІНДЕТТІ: glad әрқашан GLFW-дан БҰРЫН
@@ -178,34 +178,88 @@ int main() {
     std::cout << "GPU:    " << glGetString(GL_RENDERER) << "\n";
 
 
-    // === 2-АПТА: үшбұрыштың деректері мен буферлері ===
-    // === 3-АПТА: әр вершина енді 6 float: позиция (xyz) + түс (rgb) ===
+    // === 5-АПТА: үшбұрыштың орнына төртбұрыш — 4 вершина ===
+    // Әр вершина бұрынғыдай 6 float: позиция (xyz) + түс (rgb).
+    // 0.3f (0.5f емес): орбита радиусы 0.4, 0.3 + 0.4 = 0.7 — NDC шекарасына жетпейді.
     float vertices[] = {
-        // позиция            // түс
-        -0.5f, -0.5f, 0.0f,   1.0f, 0.0f, 0.0f,   // қызыл
-         0.5f, -0.5f, 0.0f,   0.0f, 1.0f, 0.0f,   // жасыл
-         0.0f,  0.5f, 0.0f,   0.0f, 0.0f, 1.0f    // көк
+        // позиция          // түс
+         0.3f,  0.3f, 0.0f,  1.0f, 0.0f, 0.0f,   // 0 — оң жоғарғы
+         0.3f, -0.3f, 0.0f,  0.0f, 1.0f, 0.0f,   // 1 — оң төменгі
+        -0.3f, -0.3f, 0.0f,  0.0f, 0.0f, 1.0f,   // 2 — сол төменгі
+        -0.3f,  0.3f, 0.0f,  1.0f, 1.0f, 0.0f    // 3 — сол жоғарғы
     };
 
-    unsigned int vao, vbo;
+    // === 5-АПТА: индекстер — вершина НӨМІРЛЕРІ, сағат тіліне қарсы ===
+    unsigned int indices[] = {
+        0, 1, 3,    // бірінші үшбұрыш
+        1, 2, 3     // екінші үшбұрыш
+    };
+
+    unsigned int vao, vbo, ebo;
 
     glGenVertexArrays(1, &vao);
     glGenBuffers(1, &vbo);
+    glGenBuffers(1, &ebo);                        // === 5-АПТА ===
 
-    glBindVertexArray(vao);
+    glBindVertexArray(vao);                       // VAO бірінші
 
     glBindBuffer(GL_ARRAY_BUFFER, vbo);
     glBufferData(GL_ARRAY_BUFFER, sizeof(vertices),
                  vertices, GL_STATIC_DRAW);
 
-    // location = 0: позиция. Stride 3 -> 6 float (екеуінде де өзгереді!)
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE,
-                          6 * sizeof(float), (void*)0);
+    // === 5-АПТА: EBO — VAO байланып тұрғанда жасалады ===
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(indices),
+                 indices, GL_STATIC_DRAW);
+
+    const int STRIDE = 6 * sizeof(float);
+
+    // location = 0: позиция
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, STRIDE, (void*)0);
     glEnableVertexAttribArray(0);
 
-    // location = 1: түс. Offset = 3 float (төртінші саннан бастап)
-    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE,
-                          6 * sizeof(float), (void*)(3 * sizeof(float)));
+    // location = 1: түс. Offset = 3 float
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, STRIDE, (void*)(3 * sizeof(float)));
+    glEnableVertexAttribArray(1);
+
+    // НАЗАР: GL_ELEMENT_ARRAY_BUFFER-ді 0-ге босатпаймыз!
+    // EBO — VAO күйінің бөлігі, босатсаң VAO-дан да жоғалады.
+    glBindVertexArray(0);
+
+    // === 5-АПТА, 2-ТАПСЫРМА: бесбұрыш — 5 вершина, 3 үшбұрыш, 9 индекс ===
+    // Вершиналар радиусы 0.25 шеңбердегі 5 нүкте, 90° -тан сағат тіліне қарсы.
+    float pentVertices[] = {
+        // позиция              // түс
+         0.0000f,  0.2500f, 0.0f,  1.0f, 0.0f, 0.0f,   // 0 — жоғарғы
+        -0.2378f,  0.0773f, 0.0f,  1.0f, 1.0f, 0.0f,   // 1 — сол жоғарғы
+        -0.1469f, -0.2023f, 0.0f,  0.0f, 1.0f, 0.0f,   // 2 — сол төменгі
+         0.1469f, -0.2023f, 0.0f,  0.0f, 1.0f, 1.0f,   // 3 — оң төменгі
+         0.2378f,  0.0773f, 0.0f,  0.0f, 0.0f, 1.0f    // 4 — оң жоғарғы
+    };
+
+    // Желпуіш: үш үшбұрыштың үшеуі де 0-ші вершинадан шығады, барлығы сағат тіліне қарсы.
+    unsigned int pentIndices[] = {
+        0, 1, 2,
+        0, 2, 3,
+        0, 3, 4
+    };
+
+    unsigned int pentVao, pentVbo, pentEbo;
+    glGenVertexArrays(1, &pentVao);
+    glGenBuffers(1, &pentVbo);
+    glGenBuffers(1, &pentEbo);
+
+    glBindVertexArray(pentVao);
+
+    glBindBuffer(GL_ARRAY_BUFFER, pentVbo);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(pentVertices), pentVertices, GL_STATIC_DRAW);
+
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, pentEbo);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(pentIndices), pentIndices, GL_STATIC_DRAW);
+
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, STRIDE, (void*)0);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, STRIDE, (void*)(3 * sizeof(float)));
     glEnableVertexAttribArray(1);
 
     glBindVertexArray(0);
@@ -245,9 +299,9 @@ int main() {
 
         // ================= ЖАҢАРТУ: күйді есептеу =================
         processInput(window, dt);
-        angle += speed * dt;      // тапсырма: dt-ны алып тастап, көршімен салыстыр
+        angle += speed * dt;
 
-        float offsetX = std::cos(angle) * 0.4f;   // радиус 0.4 — NDC шекарасына тимейді
+        float offsetX = std::cos(angle) * 0.4f;   // радиус 0.4
         float offsetY = std::sin(angle) * 0.4f;
         float scale   = 0.75f + 0.25f * std::sin(now * 3.0f);  // пульсация
 
@@ -264,12 +318,23 @@ int main() {
 
         glClear(GL_COLOR_BUFFER_BIT);
 
-        // === 2-АПТА: сызу командасы ===
+        // === 5-АПТА: glDrawArrays орнына glDrawElements ===
         glUseProgram(shader);                       // 1. АЛДЫМЕН осы!
         glUniform2f(locOffset, offsetX, offsetY);   // 3. мән жіберу
         glUniform1f(locScale, scale);
         glBindVertexArray(vao);
-        glDrawArrays(GL_TRIANGLES, 0, 3);
+        glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);   // 6 = ИНДЕКС саны
+
+        // === 5-АПТА, 3-ТАПСЫРМА: сол төртбұрыш екінші рет, қарама-қарсы орында ===
+        // Бір glBindVertexArray, екінші glUniform2f + glDrawElements.
+        glUniform2f(locOffset, -offsetX, -offsetY);
+        glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
+
+        // === 5-АПТА, 2-ТАПСЫРМА: бесбұрыш (9 индекс), сол төменгі бұрышта тұрады ===
+        glUniform2f(locOffset, -0.7f, -0.6f);
+        glUniform1f(locScale, 1.0f);
+        glBindVertexArray(pentVao);
+        glDrawElements(GL_TRIANGLES, 9, GL_UNSIGNED_INT, 0);
 
         glfwSwapBuffers(window);   // дайын кадрды экранға шығару
         glfwPollEvents();          // пернетақта/тінтуір оқиғаларын өңдеу
@@ -278,9 +343,12 @@ int main() {
     // -----------------------------------------------------------------
     //  5. Тазалау
     // -----------------------------------------------------------------
-    // === 2-АПТА: буферлер өшіріледі ===
     glDeleteVertexArrays(1, &vao);
     glDeleteBuffers(1, &vbo);
+    glDeleteBuffers(1, &ebo);      // === 5-АПТА: ЖАҢА ===
+    glDeleteVertexArrays(1, &pentVao);
+    glDeleteBuffers(1, &pentVbo);
+    glDeleteBuffers(1, &pentEbo);
     glDeleteProgram(shader);
 
     glfwTerminate();
@@ -310,4 +378,16 @@ int main() {
 //     FPS әртүрлі -> жылдамдық әртүрлі.
 //  2. uScale қосып, пульсация жасау — орындалды (scale, sin(now * 3.0)).
 //  3. W/S-пен жылдамдықты басқару — орындалды (processInput ішінде, dt-мен).
+// =====================================================================
+
+// =====================================================================
+//  5-АПТА ТАПСЫРМАЛАРЫ (семинар 5: индекс буфері)
+//  1. Индекстерді {0, 1, 2} ет. Не көрінеді? Неге?
+//     -> тек бір үшбұрыш (0, 1, 2 вершиналары) көрінеді: екінші үшбұрыш
+//        {1, 2, 3} жоқ, сондықтан төртбұрыштың жартысы ғана қалады.
+//        Тексеру үшін indices массивін {0, 1, 2} етіп, glDrawElements-те
+//        6-ны 3-ке ауыстыр, содан кейін бәрін қайтадан бастапқы күйге қой.
+//  2. Бесбұрыш жасалды — pentVertices (5), pentIndices (9), бөлек VAO/VBO/EBO.
+//  3. Төртбұрыш екі рет сызылады — бір glBindVertexArray, екі glUniform2f +
+//     glDrawElements, екінші рет қарама-қарсы орында (-offsetX, -offsetY).
 // =====================================================================
