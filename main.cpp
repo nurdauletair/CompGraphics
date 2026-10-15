@@ -4,11 +4,12 @@
 //  Бұл файл семестр бойы өседі. Әр аптада жаңа бөлік қосылады,
 //  ескісі орнында қалады. Аптаның соңында:
 //
-//      git add . && git commit -m "week05" && git tag week05 && git push --tags
+//      git add . && git commit -m "week06" && git tag week06 && git push --tags
 //
 //  Тег арқылы кез келген аптадағы күйге қайта оралуға болады.
 //
-//  Қазіргі күйі: 5-АПТА — индекс буфері (EBO), төртбұрыш
+//  Қазіргі күйі: 6-АПТА — 2D сахна: жол, жүріп бара жатқан машина,
+//                секіретін доп (нақты гравитациямен)
 // =====================================================================
 
 #include <glad/gl.h>      // МІНДЕТТІ: glad әрқашан GLFW-дан БҰРЫН
@@ -16,6 +17,7 @@
 
 #include <cmath>
 #include <iostream>
+#include <vector>
 
 // ---------------------------------------------------------------------
 //  Баптаулар
@@ -25,10 +27,38 @@ const int HEIGHT = 720;
 
 bool  whiteBackground = false;
 
-// === 4-АПТА: анимация жылдамдығы (радиан/секунд) — W/S өзгертеді ===
-float speed = 1.5f;
+// === 4-АПТА: анимация жылдамдығы — W/S өзгертеді ===
+// 6-аптада бұл бүкіл сахнаның уақыт жылдамдығы (1.0 = қалыпты).
+// Машина да, доп та ОДАН ТҰРАТЫН ортақ уақытқа тәуелді, сондықтан
+// W/S басқанда да олар бір-біріне ешқашан тимейді.
+float speed = 1.0f;
 
-// === 3-АПТА: вершина шейдері енді түсті де қабылдайды ===
+// === 6-АПТА: дүние координаталары ===
+// Y: -1 ... +1 (төменнен жоғары). X: -ASPECT ... +ASPECT.
+// Вершина шейдері x-ты ASPECT-ке бөледі, сондықтан шеңбер дөңгелек болып қалады.
+const float ASPECT = (float)WIDTH / (float)HEIGHT;   // 16/9
+
+// Жер деңгейі (дөңгелектер мен доптың төменгі нүктесі осы жерде)
+const float GROUND = -0.9f;
+
+// Машина
+const float CAR_HALF_W   = 0.40f;   // машина ені / 2
+const float CAR_HEIGHT   = 0.34f;   // машинаның жалпы биіктігі (төбесіне дейін)
+const float CAR_START_X  = ASPECT + CAR_HALF_W;      // оң жақтан экраннан тыс
+const float CAR_END_X    = -(ASPECT + CAR_HALF_W);   // сол жақта экраннан тыс
+const float ROAD_LENGTH  = CAR_START_X - CAR_END_X;
+
+// Доп
+const float BALL_R  = 0.15f;                // машинадан сәл кіші
+const float BALL_X  = -ASPECT * 0.5f;       // сол жарты жолдың ортасы
+const float BALL_T  = 2.0f;                 // бір секіру ұзақтығы (секунд)
+const float BALL_H  = 0.90f;                // допның ең жоғарғы көтерілуі (төменгі нүктесі)
+
+// Машина циклі = 2 доп циклі -> әр өткенде доп бірдей фазада болады.
+const float CAR_PERIOD = 2.0f * BALL_T;
+const float CAR_SPEED  = ROAD_LENGTH / CAR_PERIOD;
+
+// === 3-АПТА: вершина шейдері түсті де қабылдайды ===
 // Назар: #version жолдың ЕҢ БІРІНШІ символынан басталуы керек.
 const char* vertexSrc = R"(#version 330 core
 layout (location = 0) in vec3 aPos;
@@ -37,11 +67,14 @@ layout (location = 1) in vec3 aColor;
 // === 4-АПТА: CPU-дан келетін мәндер ===
 uniform vec2  uOffset;
 uniform float uScale;
+// === 6-АПТА: терезенің ен/биіктік қатынасы (шеңбер эллипс болмауы үшін) ===
+uniform float uAspect;
 
 out vec3 vColor;
 
 void main() {
-    gl_Position = vec4(aPos.xy * uScale + uOffset, aPos.z, 1.0);
+    vec2 p = aPos.xy * uScale + uOffset;
+    gl_Position = vec4(p.x / uAspect, p.y, aPos.z, 1.0);
     vColor = aColor;
 }
 )";
@@ -98,6 +131,151 @@ unsigned int makeShader(const char* vsSrc, const char* fsSrc) {
 }
 
 // ---------------------------------------------------------------------
+//  === 6-АПТА: Mesh — VAO + VBO + EBO бір құрылымда (5-аптадағы әдіс) ===
+//  Вершина: 6 float (xyz + rgb). Индекстер — сағат тіліне қарсы.
+// ---------------------------------------------------------------------
+struct Mesh {
+    unsigned int vao = 0, vbo = 0, ebo = 0;
+    int count = 0;                 // ИНДЕКС саны (glDrawElements үшін)
+};
+
+Mesh makeMesh(const std::vector<float>& verts, const std::vector<unsigned int>& idx) {
+    Mesh m;
+    m.count = (int)idx.size();
+
+    glGenVertexArrays(1, &m.vao);
+    glGenBuffers(1, &m.vbo);
+    glGenBuffers(1, &m.ebo);
+
+    glBindVertexArray(m.vao);                     // VAO бірінші
+
+    glBindBuffer(GL_ARRAY_BUFFER, m.vbo);
+    glBufferData(GL_ARRAY_BUFFER, verts.size() * sizeof(float),
+                 verts.data(), GL_STATIC_DRAW);
+
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, m.ebo); // EBO — VAO байланып тұрғанда
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, idx.size() * sizeof(unsigned int),
+                 idx.data(), GL_STATIC_DRAW);
+
+    const int STRIDE = 6 * sizeof(float);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, STRIDE, (void*)0);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, STRIDE, (void*)(3 * sizeof(float)));
+    glEnableVertexAttribArray(1);
+
+    glBindVertexArray(0);   // EBO-ны 0-ге босатпаймыз!
+    return m;
+}
+
+void destroyMesh(Mesh& m) {
+    glDeleteVertexArrays(1, &m.vao);
+    glDeleteBuffers(1, &m.vbo);
+    glDeleteBuffers(1, &m.ebo);
+}
+
+// --- фигура құрастыру көмекшілері ---
+void addVertex(std::vector<float>& v, float x, float y, float r, float g, float b) {
+    v.push_back(x); v.push_back(y); v.push_back(0.0f);
+    v.push_back(r); v.push_back(g); v.push_back(b);
+}
+
+// Төртбұрыш: төрт бұрыш сағат тіліне қарсы берілуі керек
+void addQuad(std::vector<float>& v, std::vector<unsigned int>& idx,
+             float x1, float y1, float x2, float y2,
+             float x3, float y3, float x4, float y4,
+             float r, float g, float b) {
+    unsigned int base = (unsigned int)(v.size() / 6);
+    addVertex(v, x1, y1, r, g, b);
+    addVertex(v, x2, y2, r, g, b);
+    addVertex(v, x3, y3, r, g, b);
+    addVertex(v, x4, y4, r, g, b);
+    idx.insert(idx.end(), { base, base + 1, base + 2,   base, base + 2, base + 3 });
+}
+
+void addRect(std::vector<float>& v, std::vector<unsigned int>& idx,
+             float x0, float y0, float x1, float y1,
+             float r, float g, float b) {
+    addQuad(v, idx, x0, y0,  x1, y0,  x1, y1,  x0, y1,  r, g, b);
+}
+
+// Шеңбер: ортасы + 40 нүкте (желпуіш). Ортасы мен жиегінің түсі әртүрлі -> градиент.
+void addCircle(std::vector<float>& v, std::vector<unsigned int>& idx,
+               float cx, float cy, float rad,
+               float cr, float cg, float cb,
+               float er, float eg, float eb) {
+    const int N = 40;
+    unsigned int base = (unsigned int)(v.size() / 6);
+    addVertex(v, cx, cy, cr, cg, cb);                       // 0 — орталығы
+    for (int i = 0; i < N; i++) {
+        float a = 2.0f * 3.14159265f * (float)i / (float)N;
+        addVertex(v, cx + std::cos(a) * rad, cy + std::sin(a) * rad, er, eg, eb);
+    }
+    for (int i = 0; i < N; i++) {
+        unsigned int a = base + 1 + i;
+        unsigned int b = base + 1 + (i + 1) % N;
+        idx.insert(idx.end(), { base, a, b });
+    }
+}
+
+// ---------------------------------------------------------------------
+//  Жол: қара-сұр жолақ + ақ үзік сызықтар
+// ---------------------------------------------------------------------
+Mesh makeRoad() {
+    std::vector<float> v;
+    std::vector<unsigned int> idx;
+
+    // Жол: x бойынша экраннан сәл кең
+    addRect(v, idx, -ASPECT - 0.1f, -1.0f, ASPECT + 0.1f, -0.7f, 0.25f, 0.25f, 0.28f);
+
+    // Үзік сызықтар (дөңгелектің астында, жолдың төменгі бөлігінде)
+    for (float x = -ASPECT; x < ASPECT; x += 0.6f) {
+        addRect(v, idx, x, -0.975f, x + 0.3f, -0.950f, 0.95f, 0.95f, 0.95f);
+    }
+    return makeMesh(v, idx);
+}
+
+// ---------------------------------------------------------------------
+//  Машина. Жергілікті координата: (0,0) — төменгі орта нүкте (жермен жанасу).
+//  Алдыңғы жағы СОЛ жақта (машина солға жүреді).
+// ---------------------------------------------------------------------
+Mesh makeCar() {
+    std::vector<float> v;
+    std::vector<unsigned int> idx;
+
+    // Кузов (қызыл)
+    addRect(v, idx, -0.40f, 0.07f, 0.40f, 0.20f, 0.85f, 0.10f, 0.10f);
+
+    // Кабина (трапеция, сәл күңгірт қызыл)
+    addQuad(v, idx, -0.28f, 0.20f,   0.22f, 0.20f,   0.12f, CAR_HEIGHT,  -0.14f, CAR_HEIGHT,
+            0.70f, 0.08f, 0.08f);
+
+    // Терезе (ашық көк)
+    addQuad(v, idx, -0.22f, 0.22f,   0.16f, 0.22f,   0.09f, 0.32f,  -0.11f, 0.32f,
+            0.65f, 0.88f, 1.00f);
+
+    // Фара (сары) — алдыңғы жағында
+    addRect(v, idx, -0.40f, 0.12f, -0.35f, 0.17f, 1.0f, 0.95f, 0.30f);
+
+    // Дөңгелектер: қара шина + сұр диск. Кузовтан кейін салынады -> алдында көрінеді
+    const float wx[2] = { -0.25f, 0.25f };
+    for (int i = 0; i < 2; i++) {
+        addCircle(v, idx, wx[i], 0.07f, 0.07f,   0.10f, 0.10f, 0.10f,   0.10f, 0.10f, 0.10f);
+        addCircle(v, idx, wx[i], 0.07f, 0.03f,   0.75f, 0.75f, 0.78f,   0.75f, 0.75f, 0.78f);
+    }
+    return makeMesh(v, idx);
+}
+
+// ---------------------------------------------------------------------
+//  Доп. Жергілікті координата: (0,0) — доптың орталығы.
+// ---------------------------------------------------------------------
+Mesh makeBall() {
+    std::vector<float> v;
+    std::vector<unsigned int> idx;
+    addCircle(v, idx, 0.0f, 0.0f, BALL_R,   1.0f, 0.65f, 0.35f,   0.90f, 0.35f, 0.05f);
+    return makeMesh(v, idx);
+}
+
+// ---------------------------------------------------------------------
 //  Терезе өлшемі өзгергенде шақырылады
 // ---------------------------------------------------------------------
 void onResize(GLFWwindow*, int width, int height) {
@@ -117,12 +295,13 @@ void processInput(GLFWwindow* window, float dt) {
         whiteBackground = true;
     }
 
-    // === 4-АПТА: W/S — жылдамдықты басқару (секундына 2 рад/сек өзгереді) ===
+    // === 4-АПТА: W/S — жылдамдықты басқару ===
     if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS) {
-        speed += 2.0f * dt;
+        speed += 1.0f * dt;
     }
     if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS) {
-        speed -= 2.0f * dt;
+        speed -= 1.0f * dt;
+        if (speed < 0.0f) speed = 0.0f;   // уақыт кері жүрмесін
     }
 }
 
@@ -177,103 +356,39 @@ int main() {
     std::cout << "OpenGL: " << glGetString(GL_VERSION) << "\n";
     std::cout << "GPU:    " << glGetString(GL_RENDERER) << "\n";
 
+    // Бастапқы viewport (Retina экранда framebuffer терезеден үлкен болады)
+    int fbw, fbh;
+    glfwGetFramebufferSize(window, &fbw, &fbh);
+    glViewport(0, 0, fbw, fbh);
 
-    // === 5-АПТА: үшбұрыштың орнына төртбұрыш — 4 вершина ===
-    // Әр вершина бұрынғыдай 6 float: позиция (xyz) + түс (rgb).
-    // 0.3f (0.5f емес): орбита радиусы 0.4, 0.3 + 0.4 = 0.7 — NDC шекарасына жетпейді.
-    float vertices[] = {
-        // позиция          // түс
-         0.3f,  0.3f, 0.0f,  1.0f, 0.0f, 0.0f,   // 0 — оң жоғарғы
-         0.3f, -0.3f, 0.0f,  0.0f, 1.0f, 0.0f,   // 1 — оң төменгі
-        -0.3f, -0.3f, 0.0f,  0.0f, 0.0f, 1.0f,   // 2 — сол төменгі
-        -0.3f,  0.3f, 0.0f,  1.0f, 1.0f, 0.0f    // 3 — сол жоғарғы
-    };
+    // === 6-АПТА: үш фигура ===
+    Mesh road = makeRoad();
+    Mesh car  = makeCar();
+    Mesh ball = makeBall();
 
-    // === 5-АПТА: индекстер — вершина НӨМІРЛЕРІ, сағат тіліне қарсы ===
-    unsigned int indices[] = {
-        0, 1, 3,    // бірінші үшбұрыш
-        1, 2, 3     // екінші үшбұрыш
-    };
-
-    unsigned int vao, vbo, ebo;
-
-    glGenVertexArrays(1, &vao);
-    glGenBuffers(1, &vbo);
-    glGenBuffers(1, &ebo);                        // === 5-АПТА ===
-
-    glBindVertexArray(vao);                       // VAO бірінші
-
-    glBindBuffer(GL_ARRAY_BUFFER, vbo);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(vertices),
-                 vertices, GL_STATIC_DRAW);
-
-    // === 5-АПТА: EBO — VAO байланып тұрғанда жасалады ===
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo);
-    glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(indices),
-                 indices, GL_STATIC_DRAW);
-
-    const int STRIDE = 6 * sizeof(float);
-
-    // location = 0: позиция
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, STRIDE, (void*)0);
-    glEnableVertexAttribArray(0);
-
-    // location = 1: түс. Offset = 3 float
-    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, STRIDE, (void*)(3 * sizeof(float)));
-    glEnableVertexAttribArray(1);
-
-    // НАЗАР: GL_ELEMENT_ARRAY_BUFFER-ді 0-ге босатпаймыз!
-    // EBO — VAO күйінің бөлігі, босатсаң VAO-дан да жоғалады.
-    glBindVertexArray(0);
-
-    // === 5-АПТА, 2-ТАПСЫРМА: бесбұрыш — 5 вершина, 3 үшбұрыш, 9 индекс ===
-    // Вершиналар радиусы 0.25 шеңбердегі 5 нүкте, 90° -тан сағат тіліне қарсы.
-    float pentVertices[] = {
-        // позиция              // түс
-         0.0000f,  0.2500f, 0.0f,  1.0f, 0.0f, 0.0f,   // 0 — жоғарғы
-        -0.2378f,  0.0773f, 0.0f,  1.0f, 1.0f, 0.0f,   // 1 — сол жоғарғы
-        -0.1469f, -0.2023f, 0.0f,  0.0f, 1.0f, 0.0f,   // 2 — сол төменгі
-         0.1469f, -0.2023f, 0.0f,  0.0f, 1.0f, 1.0f,   // 3 — оң төменгі
-         0.2378f,  0.0773f, 0.0f,  0.0f, 0.0f, 1.0f    // 4 — оң жоғарғы
-    };
-
-    // Желпуіш: үш үшбұрыштың үшеуі де 0-ші вершинадан шығады, барлығы сағат тіліне қарсы.
-    unsigned int pentIndices[] = {
-        0, 1, 2,
-        0, 2, 3,
-        0, 3, 4
-    };
-
-    unsigned int pentVao, pentVbo, pentEbo;
-    glGenVertexArrays(1, &pentVao);
-    glGenBuffers(1, &pentVbo);
-    glGenBuffers(1, &pentEbo);
-
-    glBindVertexArray(pentVao);
-
-    glBindBuffer(GL_ARRAY_BUFFER, pentVbo);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(pentVertices), pentVertices, GL_STATIC_DRAW);
-
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, pentEbo);
-    glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(pentIndices), pentIndices, GL_STATIC_DRAW);
-
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, STRIDE, (void*)0);
-    glEnableVertexAttribArray(0);
-    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, STRIDE, (void*)(3 * sizeof(float)));
-    glEnableVertexAttribArray(1);
-
-    glBindVertexArray(0);
-
-    // === 3-АПТА: шейдерлер енді makeShader() арқылы (16 жол -> 1 жол) ===
+    // === 3-АПТА: шейдерлер makeShader() арқылы ===
     unsigned int shader = makeShader(vertexSrc, fragmentSrc);
 
     // === 4-АПТА: uniform орнын цикл алдында БІР РЕТ табамыз ===
     int locOffset = glGetUniformLocation(shader, "uOffset");
     int locScale  = glGetUniformLocation(shader, "uScale");
+    int locAspect = glGetUniformLocation(shader, "uAspect");
+
+    // Өзгермейтін uniform-дар бір рет жіберіледі
+    glUseProgram(shader);
+    glUniform1f(locAspect, ASPECT);
+    glUniform1f(locScale, 1.0f);
+
+    // === 6-АПТА: доптың фазасын есептейміз ===
+    // Машина доптың x-ына жеткен сәтте доп ЕҢ ЖОҒАРЫ нүктеде болуы керек.
+    // Сонда машина доптың астынан өтеді, тимейді.
+    float tPass = (CAR_START_X - BALL_X) / CAR_SPEED;    // машина доптың x-ына жететін уақыт
+    float ballPhase = BALL_T * 0.5f - tPass;
+    ballPhase = std::fmod(std::fmod(ballPhase, BALL_T) + BALL_T, BALL_T);
 
     // === 4-АПТА: уақыт және анимация күйі ===
-    float lastFrame = (float)glfwGetTime();   // НАЗАР: нөл емес!
-    float angle = 0.0f;                       // шеңбердегі орын (радиан)
+    float  lastFrame = (float)glfwGetTime();   // НАЗАР: нөл емес!
+    double simTime   = 0.0;                    // сахнаның ортақ уақыты
 
     // -----------------------------------------------------------------
     //  4. Негізгі цикл
@@ -292,49 +407,51 @@ int main() {
         frameCount++;
         if (now - fpsTimer >= 1.0) {
             std::cout << "FPS: " << frameCount
-                      << "  speed: " << speed << " рад/с\n";
+                      << "  speed: " << speed << "x\n";
             frameCount = 0;
             fpsTimer = now;
         }
 
         // ================= ЖАҢАРТУ: күйді есептеу =================
         processInput(window, dt);
-        angle += speed * dt;
+        simTime += (double)(speed * dt);
 
-        float offsetX = std::cos(angle) * 0.4f;   // радиус 0.4
-        float offsetY = std::sin(angle) * 0.4f;
-        float scale   = 0.75f + 0.25f * std::sin(now * 3.0f);  // пульсация
+        // --- Машина: оңнан солға, сосын қайтадан оңнан (шексіз) ---
+        float carT = (float)std::fmod(simTime, (double)CAR_PERIOD);
+        float carX = CAR_START_X - CAR_SPEED * carT;
+
+        // --- Доп: тұрақты гравитация -> парабола ---
+        // h = H * (1 - s^2), s = -1...+1. Төменде жылдам, жоғарыда баяу:
+        // көтерілгенде бірте-бірте баяулайды, құлағанда бірте-бірте жылдамдайды.
+        float bt = (float)std::fmod(simTime + (double)ballPhase, (double)BALL_T);
+        float s  = 2.0f * (bt / BALL_T) - 1.0f;
+        float h  = BALL_H * (1.0f - s * s);
+        float ballY = GROUND + BALL_R + h;
 
         // ================= СЫЗУ: күйді көрсету =================
-        // --- Экранды тазалау (1-апта) ---
-        float r = (std::sin(now * 2.0f) + 1.0f) * 0.5f * 0.3f;
-        float g = (std::sin(now * 1.5f) + 1.0f) * 0.5f * 0.3f;
-
         if (whiteBackground) {
             glClearColor(1.0f, 1.0f, 1.0f, 1.0f);
         } else {
-            glClearColor(r, g, 0.35f, 1.0f);
+            glClearColor(0.53f, 0.81f, 0.92f, 1.0f);   // аспан
         }
-
         glClear(GL_COLOR_BUFFER_BIT);
 
-        // === 5-АПТА: glDrawArrays орнына glDrawElements ===
-        glUseProgram(shader);                       // 1. АЛДЫМЕН осы!
-        glUniform2f(locOffset, offsetX, offsetY);   // 3. мән жіберу
-        glUniform1f(locScale, scale);
-        glBindVertexArray(vao);
-        glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);   // 6 = ИНДЕКС саны
+        glUseProgram(shader);
 
-        // === 5-АПТА, 3-ТАПСЫРМА: сол төртбұрыш екінші рет, қарама-қарсы орында ===
-        // Бір glBindVertexArray, екінші glUniform2f + glDrawElements.
-        glUniform2f(locOffset, -offsetX, -offsetY);
-        glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
+        // Жол
+        glUniform2f(locOffset, 0.0f, 0.0f);
+        glBindVertexArray(road.vao);
+        glDrawElements(GL_TRIANGLES, road.count, GL_UNSIGNED_INT, 0);
 
-        // === 5-АПТА, 2-ТАПСЫРМА: бесбұрыш (9 индекс), сол төменгі бұрышта тұрады ===
-        glUniform2f(locOffset, -0.7f, -0.6f);
-        glUniform1f(locScale, 1.0f);
-        glBindVertexArray(pentVao);
-        glDrawElements(GL_TRIANGLES, 9, GL_UNSIGNED_INT, 0);
+        // Машина
+        glUniform2f(locOffset, carX, GROUND);
+        glBindVertexArray(car.vao);
+        glDrawElements(GL_TRIANGLES, car.count, GL_UNSIGNED_INT, 0);
+
+        // Доп (орнында секіреді: x тұрақты, y өзгереді)
+        glUniform2f(locOffset, BALL_X, ballY);
+        glBindVertexArray(ball.vao);
+        glDrawElements(GL_TRIANGLES, ball.count, GL_UNSIGNED_INT, 0);
 
         glfwSwapBuffers(window);   // дайын кадрды экранға шығару
         glfwPollEvents();          // пернетақта/тінтуір оқиғаларын өңдеу
@@ -343,12 +460,9 @@ int main() {
     // -----------------------------------------------------------------
     //  5. Тазалау
     // -----------------------------------------------------------------
-    glDeleteVertexArrays(1, &vao);
-    glDeleteBuffers(1, &vbo);
-    glDeleteBuffers(1, &ebo);      // === 5-АПТА: ЖАҢА ===
-    glDeleteVertexArrays(1, &pentVao);
-    glDeleteBuffers(1, &pentVbo);
-    glDeleteBuffers(1, &pentEbo);
+    destroyMesh(road);
+    destroyMesh(car);
+    destroyMesh(ball);
     glDeleteProgram(shader);
 
     glfwTerminate();
@@ -376,18 +490,28 @@ int main() {
 //  4-АПТА ТАПСЫРМАЛАРЫ (семинар 4: шеңбер бойымен қозғалу)
 //  1. dt-ны алып тастап (angle += speed * 0.02f;), көршімен салыстыр:
 //     FPS әртүрлі -> жылдамдық әртүрлі.
-//  2. uScale қосып, пульсация жасау — орындалды (scale, sin(now * 3.0)).
+//  2. uScale қосып, пульсация жасау — орындалды.
 //  3. W/S-пен жылдамдықты басқару — орындалды (processInput ішінде, dt-мен).
 // =====================================================================
 
 // =====================================================================
 //  5-АПТА ТАПСЫРМАЛАРЫ (семинар 5: индекс буфері)
-//  1. Индекстерді {0, 1, 2} ет. Не көрінеді? Неге?
-//     -> тек бір үшбұрыш (0, 1, 2 вершиналары) көрінеді: екінші үшбұрыш
-//        {1, 2, 3} жоқ, сондықтан төртбұрыштың жартысы ғана қалады.
-//        Тексеру үшін indices массивін {0, 1, 2} етіп, glDrawElements-те
-//        6-ны 3-ке ауыстыр, содан кейін бәрін қайтадан бастапқы күйге қой.
-//  2. Бесбұрыш жасалды — pentVertices (5), pentIndices (9), бөлек VAO/VBO/EBO.
-//  3. Төртбұрыш екі рет сызылады — бір glBindVertexArray, екі glUniform2f +
-//     glDrawElements, екінші рет қарама-қарсы орында (-offsetX, -offsetY).
+//  1. Индекстерді {0, 1, 2} ет -> тек бір үшбұрыш көрінеді.
+//  2. Бесбұрыш (5 вершина, 3 үшбұрыш, 9 индекс) — орындалды.
+//  3. Төртбұрышты екі рет сызу — орындалды.
+//  (6-аптада сахна ауыстырылды, EBO әдісі makeMesh() ішінде қалды.)
+// =====================================================================
+
+// =====================================================================
+//  6-АПТА ТАПСЫРМАСЫ (2D сахна)
+//  1. Машина фигурасы оңғы төменнен солға қарай жүреді, сол жақтан
+//     шыққанда оң жақтан қайта пайда болады (шексіз) — орындалды.
+//  2. Доп машинадан сәл кіші (радиус 0.15, машина биіктігі 0.34) —
+//     орындалды.
+//  3. Доп сол жарты жолдың ортасында тұрып, орнында секіреді — орындалды.
+//  4. Секіру нақты физикамен: h = H*(1 - s^2). Жоғары көтерілгенде баяулайды,
+//     құлағанда жылдамдайды — орындалды.
+//  5. Машина мен доп ешқашан тимейді: машина доптың x-ынан өткенде доп ең
+//     жоғарғы нүктеде болады (ballPhase), ал машина циклі доп циклінен
+//     дәл 2 есе ұзақ (CAR_PERIOD = 2 * BALL_T) — орындалды.
 // =====================================================================
