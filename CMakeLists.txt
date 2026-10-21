@@ -42,3 +42,21 @@ target_link_libraries(cg PRIVATE OpenGL::GL glfw glm::glm)
 target_compile_definitions(cg PRIVATE
     ASSET_DIR="${CMAKE_CURRENT_SOURCE_DIR}/assets"
 )
+
+
+# --- СӨЖ: Traffic Racer 2D (бөлек бағдарлама) ---
+add_executable(siw
+    SIW.cpp
+    external/glad/src/gl.c
+)
+
+target_include_directories(siw PRIVATE
+    external/glad/include
+    external/stb
+)
+
+target_link_libraries(siw PRIVATE OpenGL::GL glfw glm::glm)
+
+target_compile_definitions(siw PRIVATE
+    ASSET_DIR="${CMAKE_CURRENT_SOURCE_DIR}/assets"
+)
