@@ -46,7 +46,7 @@ target_compile_definitions(cg PRIVATE
 
 # --- СӨЖ: Traffic Racer 2D (бөлек бағдарлама) ---
 add_executable(siw
-    SIW.cpp
+    SIW/SIW.cpp
     external/glad/src/gl.c
 )
 
