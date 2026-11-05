@@ -4,13 +4,13 @@
 //  Бұл файл семестр бойы өседі. Әр аптада жаңа бөлік қосылады,
 //  ескісі орнында қалады. Аптаның соңында:
 //
-//      git add . && git commit -m "week08: тереңдік буфері, culling, бірнеше объект"
-//      git tag week08 && git push origin main --tags
+//      git add main.cpp && git commit -m "week09: камера, WASD, delta time"
+//      git tag week09 && git push origin main --tags
 //
 //  Тег арқылы кез келген аптадағы күйге қайта оралуға болады.
 //
-//  Қазіргі күйі: 8-АПТА — тереңдік буфері, back-face culling, Z-fighting.
-//                Бес куб, әрқайсысы өз орнында, өз жылдамдығымен айналады.
+//  Қазіргі күйі: 9-АПТА — камера, WASD, жоғары/төмен қозғалыс, жүгіру.
+//                Сол бес кубтың арасында еркін жүруге болады.
 // =====================================================================
 
 #include <glad/gl.h>      // МІНДЕТТІ: glad әрқашан GLFW-дан БҰРЫН
@@ -35,8 +35,13 @@ int gHeight = HEIGHT;
 
 bool  whiteBackground = false;
 
-// === 4-АПТА: анимация жылдамдығы — W/S өзгертеді ===
+// === 4-АПТА: анимация жылдамдығы — енді Up/Down өзгертеді ===
 float speed = 1.0f;
+
+// === 9-АПТА: камера күйі — цикл сыртында сақталады ===
+glm::vec3 camPos   = glm::vec3(0.0f, 0.0f, 3.0f);
+glm::vec3 camFront = glm::vec3(0.0f, 0.0f, -1.0f);
+glm::vec3 camUp    = glm::vec3(0.0f, 1.0f, 0.0f);
 
 // === 7-АПТА: проекция параметрлері ===
 const float FOV_DEG    = 45.0f;
@@ -195,25 +200,57 @@ void framebuffer_size_callback(GLFWwindow*, int width, int height) {
 
 // ---------------------------------------------------------------------
 //  Пернетақтаны тексеру. Әр кадрда шақырылады.
-//  4-апта: dt қосылды — W/S жеделдету болғандықтан dt МІНДЕТТІ.
+//  9-апта: камераның қозғалысы FPS-ке тәуелсіз болуы үшін dt қолданылады.
 // ---------------------------------------------------------------------
 void processInput(GLFWwindow* window, float dt) {
     if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS) {
         glfwSetWindowShouldClose(window, true);
     }
 
-    if (glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS) {
+    if (glfwGetKey(window, GLFW_KEY_B) == GLFW_PRESS) {
         whiteBackground = true;
     }
 
-    // === 4-АПТА: W/S — жылдамдықты басқару ===
-    if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS) {
+    // === 4-АПТА: анимация жылдамдығын басқару (W/S енді камераға тиесілі) ===
+    if (glfwGetKey(window, GLFW_KEY_UP) == GLFW_PRESS) {
         speed += 1.0f * dt;
     }
-    if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS) {
+    if (glfwGetKey(window, GLFW_KEY_DOWN) == GLFW_PRESS) {
         speed -= 1.0f * dt;
         if (speed < 0.0f) speed = 0.0f;   // уақыт кері жүрмесін
     }
+
+    // === 9-АПТА: WASD + Space/Left Shift + Left Ctrl ===
+    float cameraSpeed = 2.5f * dt;
+    if (glfwGetKey(window, GLFW_KEY_LEFT_CONTROL) == GLFW_PRESS) {
+        cameraSpeed *= 2.0f;
+    }
+
+    const glm::vec3 right = glm::normalize(glm::cross(camFront, camUp));
+    if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS) camPos += cameraSpeed * camFront;
+    if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS) camPos -= cameraSpeed * camFront;
+    if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS) camPos -= cameraSpeed * right;
+    if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS) camPos += cameraSpeed * right;
+
+    // Әлемнің Y осін таңдадық: жоғары/төмен бағыты камера еңкейсе де өзгермейді.
+    const glm::vec3 worldUp(0.0f, 1.0f, 0.0f);
+    if (glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS) camPos += cameraSpeed * worldUp;
+    if (glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS) camPos -= cameraSpeed * worldUp;
+
+    // Қосымша: адасып кетсең, R бастапқы күйге қайтарады.
+    if (glfwGetKey(window, GLFW_KEY_R) == GLFW_PRESS) {
+        camPos   = glm::vec3(0.0f, 0.0f, 3.0f);
+        camFront = glm::vec3(0.0f, 0.0f, -1.0f);
+        camUp    = glm::vec3(0.0f, 1.0f, 0.0f);
+    }
+
+    // Қосымша: P басылғанда координаттарды бір рет шығару.
+    static bool pWasPressed = false;
+    const bool pPressed = glfwGetKey(window, GLFW_KEY_P) == GLFW_PRESS;
+    if (pPressed && !pWasPressed) {
+        std::cout << "camPos: " << camPos.x << ", " << camPos.y << ", " << camPos.z << "\n";
+    }
+    pWasPressed = pPressed;
 }
 
 // =====================================================================
@@ -266,6 +303,9 @@ int main() {
 
     std::cout << "OpenGL: " << glGetString(GL_VERSION) << "\n";
     std::cout << "GPU:    " << glGetString(GL_RENDERER) << "\n";
+    std::cout << "WASD: move | Space/Left Shift: up/down | Left Ctrl: 2x speed\n"
+                 "R: reset camera | P: position | Up/Down: animation speed\n"
+                 "B: white background | O: orthographic (hold) | Esc: exit\n";
 
     // Бастапқы өлшем (Retina экранда framebuffer терезеден үлкен болады)
     glfwGetFramebufferSize(window, &gWidth, &gHeight);
@@ -307,7 +347,7 @@ int main() {
 
     // === 4-АПТА: уақыт және анимация күйі ===
     float  lastFrame = (float)glfwGetTime();   // НАЗАР: нөл емес!
-    double simTime   = 0.0;                    // сахнаның ортақ уақыты (W/S жылдамдатады)
+    double simTime   = 0.0;                    // сахнаның ортақ уақыты (Up/Down жылдамдатады)
 
     // -----------------------------------------------------------------
     //  4. Негізгі цикл
@@ -359,15 +399,8 @@ int main() {
             projection = glm::perspective(glm::radians(FOV_DEG), aspect, NEAR_PLANE, FAR_PLANE);
         }
 
-        // VIEW: камера z = 3 нүктесінде, координат басына қарайды.
-        // Z-fighting демосында камера сәл теңселеді — өрнек өзгергені көрінсін.
-        glm::vec3 eye(0.0f, 0.0f, 3.0f);
-        if (ZFIGHT_DEMO) {
-            eye = glm::vec3(std::sin(angle * 0.5f) * 0.6f, 0.3f, 3.0f);
-        }
-        glm::mat4 view = glm::lookAt(eye,
-                                     glm::vec3(0.0f, 0.0f, 0.0f),
-                                     glm::vec3(0.0f, 1.0f, 0.0f));
+        // === 9-АПТА: мақсат нүктесі камерамен бірге жылжиды ===
+        glm::mat4 view = glm::lookAt(camPos, camPos + camFront, camUp);
 
         // projection мен view — бір рет, үш куб үшін ортақ.
         glUniformMatrix4fv(locProj, 1, GL_FALSE, glm::value_ptr(projection));
@@ -418,7 +451,7 @@ int main() {
 
 // =====================================================================
 //  1-АПТА ТАПСЫРМАЛАРЫ — орындалды
-//  1. Терезе 1280x720.   2. Фон жылдамдығы.   3. Пробел = ақ фон.   4. FPS.
+//  1. Терезе 1280x720.   2. Фон жылдамдығы.   3. B = ақ фон.   4. FPS.
 // =====================================================================
 
 // =====================================================================
@@ -486,4 +519,37 @@ int main() {
 //   қарайды, қалған 3 қыр (6 үшбұрыш) расталмай қалады, яғни жартысы.
 //   Куб айналғанда "артқы" қыр ауысады, бірақ код ӨЗГЕРМЕЙДІ: GPU әр кадрда
 //   әр үшбұрыштың экрандағы айналу бағытына (CCW/CW) қарап өзі шешеді.
+// =====================================================================
+
+// =====================================================================
+//  9-АПТА ТАПСЫРМАЛАРЫ (камера, LookAt, пернетақтамен жылжу) — орындалды
+//
+//  БАЗАЛЫҚ БӨЛІМ:
+//   camPos, camFront, camUp — жаһандық айнымалылар.
+//   WASD қозғалысы processInput(window, dt) ішінде, dt есептелгеннен кейін.
+//   A/D бағыты = normalize(cross(camFront, camUp)).
+//   view әр кадрда lookAt(camPos, camPos + camFront, camUp) арқылы құрылады.
+//   Бес кубтың model матрицалары камера қозғалысына тәуелді емес.
+//
+//  1-ТАПСЫРМА. Екі LookAt нұсқасының айырмашылығы:
+//   lookAt(camPos, glm::vec3(0.0f), camUp) болса, камера әрқашан координат
+//   басына қарайды. W/S жақындатады/алыстатады, A/D кезінде көрініс бағыты
+//   өзгеріп, камера сахнаға қарай бұрылады. Бұл нысанды жан-жағынан қарау
+//   үшін пайдалы (мысалы, 3D модельді қарау, редактордағы орбиталық камера).
+//   Түзетілген нұсқада мақсат = camPos + camFront: бағыт тұрақты қалады.
+//   A камераны солға, бастапқы бағытта әлемнің -X осі бойымен жылжытады;
+//   камера координат басына өздігінен бұрылмайды.
+//
+//  2-ТАПСЫРМА. Space — жоғары, Left Shift — төмен.
+//   Әлемнің Y осі таңдалды: адам басқарылатын ойында жоғары бағыты
+//   тұрақты болуы керек. Ұшақ симуляторында камерамен бірге бұрылатын
+//   жергілікті up векторы пайдалы. Қазір camUp = worldUp, нәтижелері бірдей.
+//
+//  3-ТАПСЫРМА. Left Ctrl қозғалыс жылдамдығын 2 есе арттырады.
+//   Қалыпты жылдамдық 2.5 бірлік/с, жүгіру 5.0 бірлік/с; екеуі де dt-мен.
+//   2.0-ге dt-ден бұрын не кейін көбейту математикалық нәтижені өзгертпейді:
+//   (2.5 * dt) * 2.0 = (2.5 * 2.0) * dt (float дөңгелектеуі ғана мүмкін).
+//
+//  ҚОСЫМША: R — камераны бастапқы күйге қайтару, P — координаттарды шығару.
+//  Бұрынғы басқару: анимация жылдамдығы Up/Down, ақ фон B пернесіне көшті.
 // =====================================================================
