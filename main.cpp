@@ -4,13 +4,13 @@
 //  Бұл файл семестр бойы өседі. Әр аптада жаңа бөлік қосылады,
 //  ескісі орнында қалады. Аптаның соңында:
 //
-//      git add main.cpp && git commit -m "week09: камера, WASD, delta time"
-//      git tag week09 && git push origin main --tags
+//      git add main.cpp && git commit -m "week10: mouse look, yaw/pitch, fov zoom"
+//      git tag week10 && git push origin main --tags
 //
 //  Тег арқылы кез келген аптадағы күйге қайта оралуға болады.
 //
-//  Қазіргі күйі: 9-АПТА — камера, WASD, жоғары/төмен қозғалыс, жүгіру.
-//                Сол бес кубтың арасында еркін жүруге болады.
+//  Қазіргі күйі: 10-АПТА — тінтуірмен еркін камера, yaw/pitch, FOV зумы.
+//                Сол бес куб, WASD, invert Y және камера күйін шығару.
 // =====================================================================
 
 #include <glad/gl.h>      // МІНДЕТТІ: glad әрқашан GLFW-дан БҰРЫН
@@ -21,6 +21,7 @@
 #include <glm/gtc/type_ptr.hpp>
 
 #include <cmath>
+#include <cstdio>
 #include <iostream>
 
 // ---------------------------------------------------------------------
@@ -44,9 +45,23 @@ glm::vec3 camFront = glm::vec3(0.0f, 0.0f, -1.0f);
 glm::vec3 camUp    = glm::vec3(0.0f, 1.0f, 0.0f);
 
 // === 7-АПТА: проекция параметрлері ===
-const float FOV_DEG    = 45.0f;
+const float FOV_DEG    = 45.0f;     // бастапқы FOV; ағымдағысы төмендегі fov
 const float NEAR_PLANE = 0.1f;      // 2-тапсырма: 0.0001f -> Z-fighting; 0.1f -> түзетілген
 const float FAR_PLANE  = 100.0f;    // 2-тапсырма: 1000.0f (жасау кезінде)
+
+// === 10-АПТА: тінтуір, бұрыштар және зум ===
+float yaw = -90.0f;               // -Z бағыты; yaw = 0 болса, +X жағына қарайды
+float pitch = 0.0f;
+float lastX = WIDTH * 0.5f;
+float lastY = HEIGHT * 0.5f;
+bool firstMouse = true;
+float fov = FOV_DEG;
+bool invertY = false;
+const float DEFAULT_SENSITIVITY = 0.1f;
+float sensitivity = DEFAULT_SENSITIVITY; // 1/2/3: 0.03 / 0.1 / 0.5
+// 1-тапсырма тәжірибесі: false қойып, pitch-ті консольден бақылау;
+// тәжірибеден кейін міндетті түрде true күйіне қайтару.
+const bool LIMIT_PITCH = true;
 
 // === 8-АПТА: тапсырмалар үшін қосқыштар (эксперимент жасау үшін) ===
 // 1-тапсырма: false қылып, скриншот түсір (тереңдік тесінсіз), сосын қайта true.
@@ -198,6 +213,55 @@ void framebuffer_size_callback(GLFWwindow*, int width, int height) {
     glViewport(0, 0, width, height);
 }
 
+// === 10-АПТА: градуспен берілген yaw/pitch-тен бірлік бағыт алу ===
+void updateCameraFront() {
+    const float yawRad = glm::radians(yaw);
+    const float pitchRad = glm::radians(pitch);
+    glm::vec3 dir;
+    dir.x = std::cos(yawRad) * std::cos(pitchRad);
+    dir.y = std::sin(pitchRad);
+    dir.z = std::sin(yawRad) * std::cos(pitchRad);
+    camFront = glm::normalize(dir);
+}
+
+void mouse_callback(GLFWwindow*, double xpos, double ypos) {
+    if (firstMouse) {
+        lastX = static_cast<float>(xpos);
+        lastY = static_cast<float>(ypos);
+        firstMouse = false;
+        return;                     // алғашқы оқиға камераны секіртпейді
+    }
+
+    const float xoffset = static_cast<float>(xpos) - lastX;
+    float yoffset = lastY - static_cast<float>(ypos); // экран Y бағытына кері
+    lastX = static_cast<float>(xpos);
+    lastY = static_cast<float>(ypos);
+    if (invertY) yoffset = -yoffset;
+
+    yaw += xoffset * sensitivity;
+    pitch += yoffset * sensitivity;
+    // Қосымша: yaw шексіз өспесін, бастапқы -90 мәні де сақталады.
+    yaw = std::fmod(yaw, 360.0f);
+    if (LIMIT_PITCH) {
+        if (pitch > 89.0f) pitch = 89.0f;
+        if (pitch < -89.0f) pitch = -89.0f;
+    } else {
+        std::cout << "pitch = " << pitch << "\n";
+    }
+    updateCameraFront();
+}
+
+void scroll_callback(GLFWwindow*, double, double yoffset) {
+    fov -= static_cast<float>(yoffset);
+    if (fov < 1.0f) fov = 1.0f;
+    if (fov > 90.0f) fov = 90.0f;  // 5-тапсырма: жоғарғы шек 45-тен 90-ға өсті
+}
+
+// Терезеге қайта оралғанда бұрынғы курсор орнымен айырманы қолданбау.
+void window_focus_callback(GLFWwindow*, int) {
+    firstMouse = true;
+}
+
 // ---------------------------------------------------------------------
 //  Пернетақтаны тексеру. Әр кадрда шақырылады.
 //  9-апта: камераның қозғалысы FPS-ке тәуелсіз болуы үшін dt қолданылады.
@@ -210,6 +274,20 @@ void processInput(GLFWwindow* window, float dt) {
     if (glfwGetKey(window, GLFW_KEY_B) == GLFW_PRESS) {
         whiteBackground = true;
     }
+
+    // === 10-АПТА: I бір басылғанда ғана invert Y ауысады ===
+    static bool iPressedLast = false;
+    const bool iNow = glfwGetKey(window, GLFW_KEY_I) == GLFW_PRESS;
+    if (iNow && !iPressedLast) {
+        invertY = !invertY;
+        std::cout << "invert Y: " << (invertY ? "ON" : "OFF") << "\n";
+    }
+    iPressedLast = iNow;
+
+    // 2-тапсырма: үш sensitivity мәнін қайта құрастырмай салыстыру.
+    if (glfwGetKey(window, GLFW_KEY_1) == GLFW_PRESS) sensitivity = 0.03f;
+    if (glfwGetKey(window, GLFW_KEY_2) == GLFW_PRESS) sensitivity = DEFAULT_SENSITIVITY;
+    if (glfwGetKey(window, GLFW_KEY_3) == GLFW_PRESS) sensitivity = 0.5f;
 
     // === 4-АПТА: анимация жылдамдығын басқару (W/S енді камераға тиесілі) ===
     if (glfwGetKey(window, GLFW_KEY_UP) == GLFW_PRESS) {
@@ -240,15 +318,29 @@ void processInput(GLFWwindow* window, float dt) {
     // Қосымша: адасып кетсең, R бастапқы күйге қайтарады.
     if (glfwGetKey(window, GLFW_KEY_R) == GLFW_PRESS) {
         camPos   = glm::vec3(0.0f, 0.0f, 3.0f);
-        camFront = glm::vec3(0.0f, 0.0f, -1.0f);
         camUp    = glm::vec3(0.0f, 1.0f, 0.0f);
+        yaw = -90.0f;
+        pitch = 0.0f;
+        fov = FOV_DEG;
+        firstMouse = true;
+        updateCameraFront();
     }
 
-    // Қосымша: P басылғанда координаттарды бір рет шығару.
+    // 4-тапсырма: P басылғанда толық күйді бір рет шығару.
     static bool pWasPressed = false;
     const bool pPressed = glfwGetKey(window, GLFW_KEY_P) == GLFW_PRESS;
     if (pPressed && !pWasPressed) {
-        std::cout << "camPos: " << camPos.x << ", " << camPos.y << ", " << camPos.z << "\n";
+        char state[512];
+        std::snprintf(state, sizeof(state),
+                      "camPos = (%.2f, %.2f, %.2f)\n"
+                      "camFront = (%.2f, %.2f, %.2f)\n"
+                      "yaw = %.1f pitch = %.1f fov = %.1f\n"
+                      "length = %.6f sensitivity = %.2f invertY = %s\n",
+                      camPos.x, camPos.y, camPos.z,
+                      camFront.x, camFront.y, camFront.z,
+                      yaw, pitch, fov, glm::length(camFront), sensitivity,
+                      invertY ? "ON" : "OFF");
+        std::cout << state;
     }
     pWasPressed = pPressed;
 }
@@ -301,10 +393,17 @@ int main() {
         return -1;
     }
 
+    // === 10-АПТА: callbacks тіркеу және курсорды ұстау ===
+    glfwSetCursorPosCallback(window, mouse_callback);
+    glfwSetScrollCallback(window, scroll_callback);
+    glfwSetWindowFocusCallback(window, window_focus_callback);
+    glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+
     std::cout << "OpenGL: " << glGetString(GL_VERSION) << "\n";
     std::cout << "GPU:    " << glGetString(GL_RENDERER) << "\n";
-    std::cout << "WASD: move | Space/Left Shift: up/down | Left Ctrl: 2x speed\n"
-                 "R: reset camera | P: position | Up/Down: animation speed\n"
+    std::cout << "Mouse: look | Wheel: zoom | I: invert Y | 1/2/3: sensitivity\n"
+                 "WASD: move | Space/Left Shift: up/down | Left Ctrl: 2x speed\n"
+                 "R: reset camera | P: full state | Up/Down: animation speed\n"
                  "B: white background | O: orthographic (hold) | Esc: exit\n";
 
     // Бастапқы өлшем (Retina экранда framebuffer терезеден үлкен болады)
@@ -376,6 +475,18 @@ int main() {
         simTime += (double)(speed * dt);
         float angle = (float)simTime;
 
+        // Қосымша: бұрыштар мен FOV терезенің тақырыбында көрінеді.
+        // Жиілігі 10 Гц: native терезе тақырыбын әр кадрда өзгертпеу.
+        static double titleTimer = -1.0;
+        if (now - titleTimer >= 0.1) {
+            char title[192];
+            std::snprintf(title, sizeof(title),
+                          "Week 10 | yaw=%.1f pitch=%.1f fov=%.1f | sens=%.2f | invertY=%s",
+                          yaw, pitch, fov, sensitivity, invertY ? "ON" : "OFF");
+            glfwSetWindowTitle(window, title);
+            titleTimer = now;
+        }
+
         // ================= СЫЗУ: күйді көрсету =================
         if (whiteBackground) {
             glClearColor(1.0f, 1.0f, 1.0f, 1.0f);
@@ -396,7 +507,7 @@ int main() {
         if (glfwGetKey(window, GLFW_KEY_O) == GLFW_PRESS) {
             projection = glm::ortho(-aspect, aspect, -1.0f, 1.0f, NEAR_PLANE, FAR_PLANE);
         } else {
-            projection = glm::perspective(glm::radians(FOV_DEG), aspect, NEAR_PLANE, FAR_PLANE);
+            projection = glm::perspective(glm::radians(fov), aspect, NEAR_PLANE, FAR_PLANE);
         }
 
         // === 9-АПТА: мақсат нүктесі камерамен бірге жылжиды ===
@@ -552,4 +663,50 @@ int main() {
 //
 //  ҚОСЫМША: R — камераны бастапқы күйге қайтару, P — координаттарды шығару.
 //  Бұрынғы басқару: анимация жылдамдығы Up/Down, ақ фон B пернесіне көшті.
+// =====================================================================
+
+// =====================================================================
+//  10-АПТА (mouse look, yaw/pitch, FOV) — код бөлігі орындалды
+//
+//  БАЗАЛЫҚ БӨЛІМ:
+//   yaw = -90, pitch = 0; firstMouse алғашқы оқиғаның секіруін болдырмайды.
+//   Курсор ұсталған, mouse/scroll callbacks тіркелген. Бұрыштар градуспен,
+//   sin/cos алдында radians қолданылады, camFront normalize арқылы алынады.
+//   pitch [-89, 89], fov [1, 90]; perspective ағымдағы fov-ты қолданады.
+//
+//  1-ТАПСЫРМА. LIMIT_PITCH = false — шектеусіз тәжірибе және pitch журналы.
+//   Математикалық сингулярлық: pitch = +/-90 кезінде cos(pitch) = 0,
+//   camFront = (0, +/-1, 0), ол camUp-пен параллель. cross(front, up) = 0;
+//   normalize(0) нөлге бөледі, NaN lookAt матрицасына тарауы мүмкін.
+//   float-та cos(radians(90)) дәл нөл болмауы мүмкін: экранның ағаруы
+//   міндетті емес, 90-нан өткенде көрініс төңкерілуі де мүмкін.
+//   Нақты бұзылған бұрышты қолданушы тәжірибеде өлшеуі керек; мұнда
+//   өлшенбеген сан нәтиже ретінде жазылмады. Соңғы кодта шектеу қосулы.
+//
+//  2-ТАПСЫРМА. Әдепкі sensitivity = 0.1: 0.03-тен жылдамырақ, 0.5-тен
+//   баяуырақ, сондықтан бастапқы орташа баптау ретінде таңдалды.
+//   1/2/3 арқылы үш мәнді салыстыруға болады (0.03 / 0.1 / 0.5).
+//   360 градусқа теориялық курсор жолы: 12000 / 3600 / 720 бірлік.
+//   Тінтуірді неше рет көтеру керегі DPI мен жұмыс орнына тәуелді.
+//   const мәнді кездейсоқ өзгертуден қорғайды. Бізде әдепкі мән const,
+//   ал sensitivity пернемен өзгертілетін жаһандық айнымалы.
+//
+//  3-ТАПСЫРМА. I — invert Y, тек жаңа басылу кезінде ауысады.
+//   Алдыңғы күй сақталмаса, ұсталған перне әр кадрда режимді ауыстырады.
+//   WASD үшін әр кадрда dt-мен қозғалу керісінше қажет.
+//
+//  4-ТАПСЫРМА. P — camPos, camFront, yaw, pitch, fov, length шығару.
+//   Float дөңгелектеуінен length 1-ден сәл өзгеше болуы мүмкін.
+//   Бағыт формуласының теориялық ұзындығы normalize болмаса да 1:
+//   cos^2(pitch)*(cos^2(yaw)+sin^2(yaw))+sin^2(pitch)=1.
+//   normalize сандық қателікті азайтып, бірлік бағытты сақтайды.
+//
+//  5-ТАПСЫРМА. Зумның жоғарғы шегі 90 градус.
+//   Үлкен FOV-та кең бұрыш көбірек кеңістікті қамтиды, ал шеттегі нысандар
+//   жазық экранға перспективалық проекцияланғанда созылып көрінеді.
+//   Бұл қалыпты проекция қасиеті; камера орны зум кезінде өзгермейді.
+//
+//  ҚОСЫМША: тақырыпта бұрыштар/FOV, R — орын/бұрыштар/FOV қалпына келтіру,
+//   yaw fmod арқылы (-360, 360) аралығында. Жүгіру бұрынғы Left Ctrl-де,
+//   Left Shift төмен қозғалу үшін сақталған.
 // =====================================================================
