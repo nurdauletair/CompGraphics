@@ -4,13 +4,14 @@
 //  Бұл файл семестр бойы өседі. Әр аптада жаңа бөлік қосылады,
 //  ескісі орнында қалады. Аптаның соңында:
 //
-//      git add main.cpp && git commit -m "week10: mouse look, yaw/pitch, fov zoom"
-//      git tag week10 && git push origin main --tags
+//      git add main.cpp assets/container.png
+//      git commit -m "week11: textures, UV, stb_image, mipmaps"
+//      git tag week11 && git push origin main --tags
 //
 //  Тег арқылы кез келген аптадағы күйге қайта оралуға болады.
 //
-//  Қазіргі күйі: 10-АПТА — тінтуірмен еркін камера, yaw/pitch, FOV зумы.
-//                Сол бес куб, WASD, invert Y және камера күйін шығару.
+//  Қазіргі күйі: 11-АПТА — текстура, UV координаттары, mipmap.
+//                Сол бес куб, еркін камера мен бұрынғы басқару сақталған.
 // =====================================================================
 
 #include <glad/gl.h>      // МІНДЕТТІ: glad әрқашан GLFW-дан БҰРЫН
@@ -20,9 +21,16 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
 
+#define STB_IMAGE_IMPLEMENTATION
+#include <stb_image.h>
+
 #include <cmath>
 #include <cstdio>
 #include <iostream>
+
+#ifndef ASSET_DIR
+#define ASSET_DIR "assets"         // CMake толық жолды өзі анықтайды
+#endif
 
 // ---------------------------------------------------------------------
 //  Баптаулар
@@ -71,59 +79,60 @@ const bool   ZFIGHT_DEMO    = false;
 // 3-тапсырма: GL_FRONT қылып диагноз қой (GL_BACK — қалыпты күй).
 const GLenum CULL_MODE      = GL_BACK;
 
-// === 7-АПТА: бір вершинаға 6 float: позиция (xyz) + түс (rgb) ===
-// Куб: 6 қыр x 2 үшбұрыш x 3 вершина = 36 вершина.
-// 8-АПТА: culling қосылғандықтан әр үшбұрыштың вершиналары сырттан
-// қарағанда САҒАТ ТІЛІНЕ ҚАРСЫ (CCW) жазылуы керек.
+// === 11-АПТА: бір вершинаға 5 float: позиция (xyz) + UV (uv) ===
+// Куб: 6 жақ x 2 үшбұрыш x 3 вершина = 36 вершина.
+// Әр жақтың екі үшбұрышы сырттан қарағанда CCW, текстура толық жайылады:
+// UV: (0,0) (1,0) (1,1), (0,0) (1,1) (0,1).
 float vertices[] = {
-    // артқы қыр (қызыл) — сырттан (-z жағынан) қарағанда CCW
-    -0.5f, -0.5f, -0.5f,  1.0f, 0.0f, 0.0f,
-    -0.5f,  0.5f, -0.5f,  1.0f, 0.0f, 0.0f,
-     0.5f,  0.5f, -0.5f,  1.0f, 0.0f, 0.0f,
-     0.5f,  0.5f, -0.5f,  1.0f, 0.0f, 0.0f,
-     0.5f, -0.5f, -0.5f,  1.0f, 0.0f, 0.0f,
-    -0.5f, -0.5f, -0.5f,  1.0f, 0.0f, 0.0f,
+    // артқы жақ (-Z)
+     0.5f, -0.5f, -0.5f,  0.0f, 0.0f,
+    -0.5f, -0.5f, -0.5f,  1.0f, 0.0f,
+    -0.5f,  0.5f, -0.5f,  1.0f, 1.0f,
+     0.5f, -0.5f, -0.5f,  0.0f, 0.0f,
+    -0.5f,  0.5f, -0.5f,  1.0f, 1.0f,
+     0.5f,  0.5f, -0.5f,  0.0f, 1.0f,
 
-    // алдыңғы қыр (жасыл)
-    -0.5f, -0.5f,  0.5f,  0.0f, 1.0f, 0.0f,
-     0.5f, -0.5f,  0.5f,  0.0f, 1.0f, 0.0f,
-     0.5f,  0.5f,  0.5f,  0.0f, 1.0f, 0.0f,
-     0.5f,  0.5f,  0.5f,  0.0f, 1.0f, 0.0f,
-    -0.5f,  0.5f,  0.5f,  0.0f, 1.0f, 0.0f,
-    -0.5f, -0.5f,  0.5f,  0.0f, 1.0f, 0.0f,
+    // алдыңғы жақ (+Z)
+    -0.5f, -0.5f,  0.5f,  0.0f, 0.0f,
+     0.5f, -0.5f,  0.5f,  1.0f, 0.0f,
+     0.5f,  0.5f,  0.5f,  1.0f, 1.0f,
+    -0.5f, -0.5f,  0.5f,  0.0f, 0.0f,
+     0.5f,  0.5f,  0.5f,  1.0f, 1.0f,
+    -0.5f,  0.5f,  0.5f,  0.0f, 1.0f,
 
-    // сол жақ қыр (көк)
-    -0.5f,  0.5f,  0.5f,  0.0f, 0.0f, 1.0f,
-    -0.5f,  0.5f, -0.5f,  0.0f, 0.0f, 1.0f,
-    -0.5f, -0.5f, -0.5f,  0.0f, 0.0f, 1.0f,
-    -0.5f, -0.5f, -0.5f,  0.0f, 0.0f, 1.0f,
-    -0.5f, -0.5f,  0.5f,  0.0f, 0.0f, 1.0f,
-    -0.5f,  0.5f,  0.5f,  0.0f, 0.0f, 1.0f,
+    // сол жақ (-X)
+    -0.5f, -0.5f, -0.5f,  0.0f, 0.0f,
+    -0.5f, -0.5f,  0.5f,  1.0f, 0.0f,
+    -0.5f,  0.5f,  0.5f,  1.0f, 1.0f,
+    -0.5f, -0.5f, -0.5f,  0.0f, 0.0f,
+    -0.5f,  0.5f,  0.5f,  1.0f, 1.0f,
+    -0.5f,  0.5f, -0.5f,  0.0f, 1.0f,
 
-    // оң жақ қыр (сары) — сырттан (+x жағынан) қарағанда CCW
-     0.5f,  0.5f,  0.5f,  1.0f, 1.0f, 0.0f,
-     0.5f, -0.5f, -0.5f,  1.0f, 1.0f, 0.0f,
-     0.5f,  0.5f, -0.5f,  1.0f, 1.0f, 0.0f,
-     0.5f, -0.5f, -0.5f,  1.0f, 1.0f, 0.0f,
-     0.5f,  0.5f,  0.5f,  1.0f, 1.0f, 0.0f,
-     0.5f, -0.5f,  0.5f,  1.0f, 1.0f, 0.0f,
+    // оң жақ (+X)
+     0.5f, -0.5f,  0.5f,  0.0f, 0.0f,
+     0.5f, -0.5f, -0.5f,  1.0f, 0.0f,
+     0.5f,  0.5f, -0.5f,  1.0f, 1.0f,
+     0.5f, -0.5f,  0.5f,  0.0f, 0.0f,
+     0.5f,  0.5f, -0.5f,  1.0f, 1.0f,
+     0.5f,  0.5f,  0.5f,  0.0f, 1.0f,
 
-    // төменгі қыр (қызғылт)
-    -0.5f, -0.5f, -0.5f,  1.0f, 0.0f, 1.0f,
-     0.5f, -0.5f, -0.5f,  1.0f, 0.0f, 1.0f,
-     0.5f, -0.5f,  0.5f,  1.0f, 0.0f, 1.0f,
-     0.5f, -0.5f,  0.5f,  1.0f, 0.0f, 1.0f,
-    -0.5f, -0.5f,  0.5f,  1.0f, 0.0f, 1.0f,
-    -0.5f, -0.5f, -0.5f,  1.0f, 0.0f, 1.0f,
+    // төменгі жақ (-Y)
+    -0.5f, -0.5f, -0.5f,  0.0f, 0.0f,
+     0.5f, -0.5f, -0.5f,  1.0f, 0.0f,
+     0.5f, -0.5f,  0.5f,  1.0f, 1.0f,
+    -0.5f, -0.5f, -0.5f,  0.0f, 0.0f,
+     0.5f, -0.5f,  0.5f,  1.0f, 1.0f,
+    -0.5f, -0.5f,  0.5f,  0.0f, 1.0f,
 
-    // жоғарғы қыр (көгілдір) — сырттан (+y жағынан) қарағанда CCW
-    -0.5f,  0.5f, -0.5f,  0.0f, 1.0f, 1.0f,
-     0.5f,  0.5f,  0.5f,  0.0f, 1.0f, 1.0f,
-     0.5f,  0.5f, -0.5f,  0.0f, 1.0f, 1.0f,
-     0.5f,  0.5f,  0.5f,  0.0f, 1.0f, 1.0f,
-    -0.5f,  0.5f, -0.5f,  0.0f, 1.0f, 1.0f,
-    -0.5f,  0.5f,  0.5f,  0.0f, 1.0f, 1.0f
+    // жоғарғы жақ (+Y)
+    -0.5f,  0.5f,  0.5f,  0.0f, 0.0f,
+     0.5f,  0.5f,  0.5f,  1.0f, 0.0f,
+     0.5f,  0.5f, -0.5f,  1.0f, 1.0f,
+    -0.5f,  0.5f,  0.5f,  0.0f, 0.0f,
+     0.5f,  0.5f, -0.5f,  1.0f, 1.0f,
+    -0.5f,  0.5f, -0.5f,  0.0f, 1.0f
 };
+static_assert(sizeof(vertices) / sizeof(float) == 36 * 5, "36 vertices: xyz + UV");
 
 // === 8-АПТА: бес куб — позициялар массиві ===
 glm::vec3 positions[] = {
@@ -138,30 +147,69 @@ glm::vec3 positions[] = {
 // Назар: #version жолдың ЕҢ БІРІНШІ символынан басталуы керек.
 const char* vertexSrc = R"(#version 330 core
 layout (location = 0) in vec3 aPos;
-layout (location = 1) in vec3 aColor;
+layout (location = 1) in vec2 aTexCoord;
 
 uniform mat4 uModel;
 uniform mat4 uView;
 uniform mat4 uProjection;
 
-out vec3 vColor;
+out vec2 vTexCoord;
 
 void main() {
     gl_Position = uProjection * uView * uModel * vec4(aPos, 1.0);
-    vColor = aColor;
+    vTexCoord = aTexCoord;
 }
 )";
 
 const char* fragmentSrc = R"(#version 330 core
-in vec3 vColor;
+in vec2 vTexCoord;
 out vec4 FragColor;
+uniform sampler2D ourTexture;
 
 void main() {
-    FragColor = vec4(vColor, 1.0);
-    // Тапсырма: түстерді төңкеру  ->  FragColor = vec4(1.0 - vColor, 1.0);
-    // Қызыл тест:                 ->  FragColor = vec4(1.0, 0.0, 0.0, 1.0);
+    FragColor = texture(ourTexture, vTexCoord);
 }
 )";
+
+// === 11-АПТА: суретті CPU-ға оқу, GPU-ға көшіру, mipmap құру ===
+unsigned int loadTexture(const char* path) {
+    stbi_set_flip_vertically_on_load(true); // суреттің жоғарғы жағын UV-ге сәйкестендіру
+    int w, h, n;
+    unsigned char* data = stbi_load(path, &w, &h, &n, 0);
+    if (!data) {
+        std::cerr << "Сурет жүктелмеді: " << path << "\n"
+                  << "stb_image: " << stbi_failure_reason() << "\n";
+        return 0;
+    }
+
+    // JPG/RGB PNG -> RGB, альфасы бар PNG -> RGBA; сұр суреттер де қолдау табады.
+    const GLenum formats[] = {GL_RED, GL_RG, GL_RGB, GL_RGBA};
+    const GLenum fmt = formats[n - 1];
+    unsigned int id;
+    glGenTextures(1, &id);
+    glBindTexture(GL_TEXTURE_2D, id);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    if (n < 3) {
+        const GLint swizzle[] = {GL_RED, GL_RED, GL_RED, n == 2 ? GL_GREEN : GL_ONE};
+        glTexParameteriv(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_RGBA, swizzle);
+    }
+
+    // RGB сурет ені 4-ке бөлінбесе де, жолдар дұрыс оқылуы керек.
+    GLint previousAlignment;
+    glGetIntegerv(GL_UNPACK_ALIGNMENT, &previousAlignment);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    glTexImage2D(GL_TEXTURE_2D, 0, fmt, w, h, 0, fmt, GL_UNSIGNED_BYTE, data);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, previousAlignment);
+    glGenerateMipmap(GL_TEXTURE_2D);  // тек негізгі деңгей жүктелгеннен кейін
+
+    stbi_image_free(data);           // CPU көшірмесі енді қажет емес
+    glBindTexture(GL_TEXTURE_2D, 0);
+    std::cout << path << " " << w << "x" << h << " арна: " << n << "\n";
+    return id;
+}
 
 // ---------------------------------------------------------------------
 //  === 3-АПТА: makeShader() — компиляция + қате тексеру ===
@@ -420,16 +468,29 @@ int main() {
     glBindBuffer(GL_ARRAY_BUFFER, vbo);
     glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
 
-    const int STRIDE = 6 * sizeof(float);
+    const int STRIDE = 5 * sizeof(float);
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, STRIDE, (void*)0);
     glEnableVertexAttribArray(0);
-    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, STRIDE, (void*)(3 * sizeof(float)));
+    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, STRIDE, (void*)(3 * sizeof(float)));
     glEnableVertexAttribArray(1);
 
     glBindVertexArray(0);
 
     // === 3-АПТА: шейдерлер makeShader() арқылы ===
     unsigned int shader = makeShader(vertexSrc, fragmentSrc);
+
+    // === 11-АПТА: бір текстура барлық бес кубқа ортақ ===
+    unsigned int texture = loadTexture(ASSET_DIR "/container.png");
+    if (texture == 0) {
+        glDeleteVertexArrays(1, &vao);
+        glDeleteBuffers(1, &vbo);
+        glDeleteProgram(shader);
+        glfwDestroyWindow(window);
+        glfwTerminate();
+        return -1;
+    }
+    glUseProgram(shader);
+    glUniform1i(glGetUniformLocation(shader, "ourTexture"), 0); // объект id емес, unit 0
 
     // === 7-АПТА: үш uniform-ның орнын цикл алдында БІР РЕТ табамыз ===
     int locModel = glGetUniformLocation(shader, "uModel");
@@ -481,7 +542,7 @@ int main() {
         if (now - titleTimer >= 0.1) {
             char title[192];
             std::snprintf(title, sizeof(title),
-                          "Week 10 | yaw=%.1f pitch=%.1f fov=%.1f | sens=%.2f | invertY=%s",
+                          "Week 11 | yaw=%.1f pitch=%.1f fov=%.1f | sens=%.2f | invertY=%s",
                           yaw, pitch, fov, sensitivity, invertY ? "ON" : "OFF");
             glfwSetWindowTitle(window, title);
             titleTimer = now;
@@ -498,6 +559,8 @@ int main() {
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
         glUseProgram(shader);
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, texture);
 
         // --- Матрицалар: цикл ІШІНДЕ құрылады ---
         float aspect = (gHeight > 0) ? (float)gWidth / (float)gHeight : 1.0f;
@@ -513,7 +576,7 @@ int main() {
         // === 9-АПТА: мақсат нүктесі камерамен бірге жылжиды ===
         glm::mat4 view = glm::lookAt(camPos, camPos + camFront, camUp);
 
-        // projection мен view — бір рет, үш куб үшін ортақ.
+        // projection мен view — бір рет, бес куб үшін ортақ.
         glUniformMatrix4fv(locProj, 1, GL_FALSE, glm::value_ptr(projection));
         glUniformMatrix4fv(locView, 1, GL_FALSE, glm::value_ptr(view));
 
@@ -521,8 +584,9 @@ int main() {
 
         if (ZFIGHT_DEMO) {
             // === 2-ТАПСЫРМА: екі куб бетпе-бет, z айырмасы 0.001 ===
-            // A кубының алдыңғы беті (жасыл) z = 0.5.
-            // B кубы 180° бұрылған: оның артқы беті (қызыл) z = 0.501 -> A-мен дерлік беттеседі.
+            // A кубының алдыңғы беті z = 0.5.
+            // B кубы 180° бұрылған: оның артқы беті z = 0.501 -> A-мен дерлік беттеседі.
+            // 11-аптадан бастап бұрынғы жасыл/қызыл түстің орнына текстура бар.
             glm::mat4 modelA = glm::mat4(1.0f);
             glUniformMatrix4fv(locModel, 1, GL_FALSE, glm::value_ptr(modelA));
             glDrawArrays(GL_TRIANGLES, 0, 36);
@@ -554,6 +618,7 @@ int main() {
     glDeleteVertexArrays(1, &vao);
     glDeleteBuffers(1, &vbo);
     glDeleteProgram(shader);
+    glDeleteTextures(1, &texture);
 
     glfwTerminate();
     return 0;
@@ -709,4 +774,28 @@ int main() {
 //  ҚОСЫМША: тақырыпта бұрыштар/FOV, R — орын/бұрыштар/FOV қалпына келтіру,
 //   yaw fmod арқылы (-360, 360) аралығында. Жүгіру бұрынғы Left Ctrl-де,
 //   Left Shift төмен қозғалу үшін сақталған.
+// =====================================================================
+
+// =====================================================================
+//  11-АПТА (текстура, UV, stb_image, mipmap) — орындалды
+//
+//  1. STB_IMAGE_IMPLEMENTATION тек осы .cpp ішінде анықталған.
+//  2. 36 вершина сақталған: бұрын xyz+rgb (6 float), енді xyz+uv (5 float).
+//     Атрибут 0: 3 компонент, атрибут 1: 2 компонент, offset = 3 float.
+//     Әр жақта UV 0..1 аралығында; сыртқы CCW орау реті сақталған.
+//  3. loadTexture(ASSET_DIR "/container.png") суретті бір рет жүктейді.
+//     Тест суреті: 512x512 RGB. Өз PNG суретіңмен ауыстыруға болады;
+//     өлшем мен арна саны файлдан алынады және консольге жазылады.
+//  4. WRAP_S/T = GL_REPEAT; MIN = GL_LINEAR_MIPMAP_LINEAR; MAG = GL_LINEAR.
+//     MAG үшін mipmap сүзгісін қолдануға болмайды.
+//  5. glTexImage2D CPU дерегін GPU-ға көшіреді, содан кейін ғана
+//     glGenerateMipmap шақырылады. CPU жады stbi_image_free арқылы босайды.
+//  6. Вершина шейдері UV-ді өткізеді; фрагмент шейдері
+//     texture(ourTexture, vTexCoord) арқылы интерполяцияланған UV-ден оқиды.
+//  7. ourTexture = 0 — текстура объектісінің id-і емес, текстуралық бірлік.
+//     Render циклінде GL_TEXTURE0 және glBindTexture анық көрсетілген.
+//  8. RGB жолдары үшін GL_UNPACK_ALIGNMENT = 1, бұрынғы мәні қайтарылады.
+//     Жүктеу қатесі толық жолымен шығады, бағдарлама ресурстарын босатады.
+//  9. Соңында GPU текстурасы glDeleteTextures арқылы жойылады.
+//     Камера, MVP, тереңдік тесті, culling және бес кубтың анимациясы сақталды.
 // =====================================================================
