@@ -1,0 +1,33 @@
+UNSUPPORTED (log once): POSSIBLE ISSUE: unit 1 GLD_TEXTURE_INDEX_2D is unloadable and bound to sampler type (Float) - using zero texture because texture unloadable
+OpenGL: 4.1 Metal - 91.7
+GPU: Apple M4
+/Users/nurdaulet/CompGraphics/assets/container.png 512x512 арна: 3
+/Users/nurdaulet/CompGraphics/assets/pattern.png 512x512 арна: 3
+/Users/nurdaulet/CompGraphics/assets/logo.png 512x512 арна: 4
+tex1 = 1 tex2 = 2 logo = 3
+Logo alpha: transparent=197351 opaque=58883 intermediate=5910
+Capture: 01-blend-0
+unit 0 -> ID 1; unit 1 -> ID 2; texture1 sampler = 0; texture2 sampler = 1; blend = 0; mode = mix
+Capture: 02-blend-05
+unit 0 -> ID 1; unit 1 -> ID 2; texture1 sampler = 0; texture2 sampler = 1; blend = 0.5; mode = mix
+Capture: 03-blend-1
+unit 0 -> ID 1; unit 1 -> ID 2; texture1 sampler = 0; texture2 sampler = 1; blend = 1; mode = mix
+Capture: 04-broken-units
+unit 0 -> ID 2; unit 1 -> ID 0; texture1 sampler = 0; texture2 sampler = 1; blend = 0; mode = mix
+Capture: 04b-broken-units-blend-1
+unit 0 -> ID 2; unit 1 -> ID 0; texture1 sampler = 0; texture2 sampler = 1; blend = 1; mode = mix
+Capture: 05-wrong-id
+unit 0 -> ID 1; unit 1 -> ID 2; texture1 sampler = 0; texture2 sampler = 2; blend = 1; mode = mix
+Capture: 06-multiply
+unit 0 -> ID 1; unit 1 -> ID 2; texture1 sampler = 0; texture2 sampler = 1; blend = 0.5; mode = multiply
+Capture: 07-add
+unit 0 -> ID 1; unit 1 -> ID 2; texture1 sampler = 0; texture2 sampler = 1; blend = 0.5; mode = add
+Capture: 07b-clamped-add
+unit 0 -> ID 1; unit 1 -> ID 2; texture1 sampler = 0; texture2 sampler = 1; blend = 0.5; mode = clamped add
+Capture: 08-decal
+unit 0 -> ID 1; unit 1 -> ID 3; texture1 sampler = 0; texture2 sampler = 1; blend = 0.5; mode = alpha decal
+Capture: 09-gradient
+unit 0 -> ID 1; unit 1 -> ID 2; texture1 sampler = 0; texture2 sampler = 1; blend = 0.5; mode = UV gradient
+Capture: 10-smoothstep
+unit 0 -> ID 1; unit 1 -> ID 2; texture1 sampler = 0; texture2 sampler = 1; blend = 0.5; mode = smoothstep
+PASS: GPU shader compilation/linking, 3 texture uploads, mipmaps, alpha cases, mix endpoints/midpoint, multiply, add/clamp, UV modes, broken units, wrong sampler ID. Checked color channels: 485358

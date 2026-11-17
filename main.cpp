@@ -4,13 +4,13 @@
 //  Бұл файл семестр бойы өседі. Әр аптада жаңа бөлік қосылады,
 //  ескісі орнында қалады. Аптаның соңында:
 //
-//      git add main.cpp assets/container.png
-//      git commit -m "week11: textures, UV, stb_image, mipmaps"
-//      git tag week11 && git push origin main --tags
+//      git add main.cpp assets/pattern.png assets/logo.png docs/week12/
+//      git commit -m "week12: multiple textures, texture units, blending"
+//      git tag week12 && git push origin main --tags
 //
 //  Тег арқылы кез келген аптадағы күйге қайта оралуға болады.
 //
-//  Қазіргі күйі: 11-АПТА — текстура, UV координаттары, mipmap.
+//  Қазіргі күйі: 12-АПТА — екі текстура, mix, альфа және UV ауысуы.
 //                Сол бес куб, еркін камера мен бұрынғы басқару сақталған.
 // =====================================================================
 
@@ -44,8 +44,21 @@ int gHeight = HEIGHT;
 
 bool  whiteBackground = false;
 
-// === 4-АПТА: анимация жылдамдығы — енді Up/Down өзгертеді ===
+// === 4-АПТА: анимация жылдамдығы — енді Page Up/Page Down өзгертеді ===
 float speed = 1.0f;
+
+// === 12-АПТА: екі текстураны араластыру ===
+float blend = 0.5f;                 // Up/Down: секундына 0.5, шегі 0..1
+enum BlendMode { MIX_MODE, MULTIPLY_MODE, ADD_MODE, CLAMP_ADD_MODE,
+                 DECAL_MODE, GRADIENT_MODE, SMOOTHSTEP_MODE, BLEND_MODE_COUNT };
+int blendMode = MIX_MODE;
+const char* const BLEND_MODE_NAMES[] = {
+    "mix", "multiply", "add", "clamped add", "alpha decal", "UV gradient", "smoothstep"
+};
+// 1/2-тапсырмадағы қателер тек F1/F2 арқылы әдейі қосылады; бастапқысы дұрыс.
+bool brokenTextureUnits = false;
+bool wrongSamplerId = false;
+bool reportTextureState = true;
 
 // === 9-АПТА: камера күйі — цикл сыртында сақталады ===
 glm::vec3 camPos   = glm::vec3(0.0f, 0.0f, 3.0f);
@@ -164,10 +177,30 @@ void main() {
 const char* fragmentSrc = R"(#version 330 core
 in vec2 vTexCoord;
 out vec4 FragColor;
-uniform sampler2D ourTexture;
+uniform sampler2D texture1;
+uniform sampler2D texture2;
+uniform float blend;
+uniform int blendMode;
 
 void main() {
-    FragColor = texture(ourTexture, vTexCoord);
+    vec4 a = texture(texture1, vTexCoord);
+    vec4 b = texture(texture2, vTexCoord);
+    if (blendMode == 1) {
+        FragColor = a * b;
+    } else if (blendMode == 2) {
+        FragColor = a + b;
+    } else if (blendMode == 3) {
+        FragColor = clamp(a + b, 0.0, 1.0);
+    } else if (blendMode == 4) {
+        FragColor = mix(a, b, b.a);
+    } else if (blendMode == 5) {
+        FragColor = mix(a, b, vTexCoord.y);
+    } else if (blendMode == 6) {
+        float t = smoothstep(0.3, 0.7, vTexCoord.y);
+        FragColor = mix(a, b, t);
+    } else {
+        FragColor = mix(a, b, blend);
+    }
 }
 )";
 
@@ -209,6 +242,40 @@ unsigned int loadTexture(const char* path) {
     glBindTexture(GL_TEXTURE_2D, 0);
     std::cout << path << " " << w << "x" << h << " арна: " << n << "\n";
     return id;
+}
+
+// === 12-АПТА: әр кадрдағы екі unit пен sampler байланысы ===
+void bindSceneTextures(unsigned int tex1, unsigned int tex2, unsigned int logo,
+                       int locTexture2) {
+    const unsigned int secondTexture = blendMode == DECAL_MODE ? logo : tex2;
+    if (brokenTextureUnits) {
+        // 1-тапсырма: екі bind арасында unit ауыспаса не болады?
+        // Детерминді бастапқы күй: unit 1 бос, ағымдағы unit 0.
+        glActiveTexture(GL_TEXTURE1);
+        glBindTexture(GL_TEXTURE_2D, 0);
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, tex1);
+        glBindTexture(GL_TEXTURE_2D, secondTexture); // tex1-ді ығыстырады
+    } else {
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, tex1);
+        glActiveTexture(GL_TEXTURE1);
+        glBindTexture(GL_TEXTURE_2D, secondTexture);
+    }
+    // 2-тапсырма: F2 қосылғанда ғана ID қасақана unit ретінде беріледі.
+    glUniform1i(locTexture2, wrongSamplerId ? static_cast<int>(secondTexture) : 1);
+    if (reportTextureState) {
+        GLint bound0, bound1;
+        glActiveTexture(GL_TEXTURE0);
+        glGetIntegerv(GL_TEXTURE_BINDING_2D, &bound0);
+        glActiveTexture(GL_TEXTURE1);
+        glGetIntegerv(GL_TEXTURE_BINDING_2D, &bound1);
+        std::cout << "unit 0 -> ID " << bound0 << "; unit 1 -> ID " << bound1
+                  << "; texture1 sampler = 0; texture2 sampler = "
+                  << (wrongSamplerId ? secondTexture : 1)
+                  << "; blend = " << blend << "; mode = " << BLEND_MODE_NAMES[blendMode] << "\n";
+        reportTextureState = false;
+    }
 }
 
 // ---------------------------------------------------------------------
@@ -310,6 +377,15 @@ void window_focus_callback(GLFWwindow*, int) {
     firstMouse = true;
 }
 
+// Бір реттік әрекеттер үшін: ұсталған перне режимді әр кадрда ауыстырмайды.
+bool keyPressedOnce(GLFWwindow* window, int key) {
+    static bool previous[GLFW_KEY_LAST + 1] = {};
+    const bool pressed = glfwGetKey(window, key) == GLFW_PRESS;
+    const bool justPressed = pressed && !previous[key];
+    previous[key] = pressed;
+    return justPressed;
+}
+
 // ---------------------------------------------------------------------
 //  Пернетақтаны тексеру. Әр кадрда шақырылады.
 //  9-апта: камераның қозғалысы FPS-ке тәуелсіз болуы үшін dt қолданылады.
@@ -337,11 +413,46 @@ void processInput(GLFWwindow* window, float dt) {
     if (glfwGetKey(window, GLFW_KEY_2) == GLFW_PRESS) sensitivity = DEFAULT_SENSITIVITY;
     if (glfwGetKey(window, GLFW_KEY_3) == GLFW_PRESS) sensitivity = 0.5f;
 
+    // === 12-АПТА: 4..0 — жеті шейдер нұсқасын қайта құрастырмай салыстыру ===
+    const int modeKeys[] = {GLFW_KEY_4, GLFW_KEY_5, GLFW_KEY_6, GLFW_KEY_7,
+                           GLFW_KEY_8, GLFW_KEY_9, GLFW_KEY_0};
+    for (int mode = 0; mode < BLEND_MODE_COUNT; ++mode) {
+        if (keyPressedOnce(window, modeKeys[mode])) {
+            blendMode = mode;
+            std::cout << "Mode: " << BLEND_MODE_NAMES[mode] << "\n";
+            reportTextureState = true;
+        }
+    }
+    if (keyPressedOnce(window, GLFW_KEY_F1)) {
+        brokenTextureUnits = !brokenTextureUnits;
+        wrongSamplerId = false;
+        blendMode = MIX_MODE;
+        reportTextureState = true;
+    }
+    if (keyPressedOnce(window, GLFW_KEY_F2)) {
+        wrongSamplerId = !wrongSamplerId;
+        brokenTextureUnits = false;
+        blendMode = MIX_MODE;
+        reportTextureState = true;
+    }
+    if (keyPressedOnce(window, GLFW_KEY_F3)) {
+        blend = 0.5f;
+        blendMode = MIX_MODE;
+        brokenTextureUnits = false;
+        wrongSamplerId = false;
+        reportTextureState = true;
+    }
+
+    if (glfwGetKey(window, GLFW_KEY_UP) == GLFW_PRESS) blend += 0.5f * dt;
+    if (glfwGetKey(window, GLFW_KEY_DOWN) == GLFW_PRESS) blend -= 0.5f * dt;
+    if (blend > 1.0f) blend = 1.0f;
+    if (blend < 0.0f) blend = 0.0f;
+
     // === 4-АПТА: анимация жылдамдығын басқару (W/S енді камераға тиесілі) ===
-    if (glfwGetKey(window, GLFW_KEY_UP) == GLFW_PRESS) {
+    if (glfwGetKey(window, GLFW_KEY_PAGE_UP) == GLFW_PRESS) {
         speed += 1.0f * dt;
     }
-    if (glfwGetKey(window, GLFW_KEY_DOWN) == GLFW_PRESS) {
+    if (glfwGetKey(window, GLFW_KEY_PAGE_DOWN) == GLFW_PRESS) {
         speed -= 1.0f * dt;
         if (speed < 0.0f) speed = 0.0f;   // уақыт кері жүрмесін
     }
@@ -389,6 +500,10 @@ void processInput(GLFWwindow* window, float dt) {
                       yaw, pitch, fov, glm::length(camFront), sensitivity,
                       invertY ? "ON" : "OFF");
         std::cout << state;
+        std::cout << "blend = " << blend << " mode = " << BLEND_MODE_NAMES[blendMode]
+                  << " brokenUnits = " << brokenTextureUnits
+                  << " wrongSamplerId = " << wrongSamplerId << "\n";
+        reportTextureState = true;
     }
     pWasPressed = pPressed;
 }
@@ -451,7 +566,10 @@ int main() {
     std::cout << "GPU:    " << glGetString(GL_RENDERER) << "\n";
     std::cout << "Mouse: look | Wheel: zoom | I: invert Y | 1/2/3: sensitivity\n"
                  "WASD: move | Space/Left Shift: up/down | Left Ctrl: 2x speed\n"
-                 "R: reset camera | P: full state | Up/Down: animation speed\n"
+                 "R: reset camera | P: full state | Page Up/Down: animation speed\n"
+                 "Up/Down: blend | 4: mix | 5: multiply | 6: add | 7: clamped add\n"
+                 "8: alpha logo | 9: UV gradient | 0: smoothstep\n"
+                 "F1: broken units | F2: wrong sampler ID | F3: restore blending\n"
                  "B: white background | O: orthographic (hold) | Esc: exit\n";
 
     // Бастапқы өлшем (Retina экранда framebuffer терезеден үлкен болады)
@@ -479,9 +597,14 @@ int main() {
     // === 3-АПТА: шейдерлер makeShader() арқылы ===
     unsigned int shader = makeShader(vertexSrc, fragmentSrc);
 
-    // === 11-АПТА: бір текстура барлық бес кубқа ортақ ===
-    unsigned int texture = loadTexture(ASSET_DIR "/container.png");
-    if (texture == 0) {
+    // === 12-АПТА: екі sampler, екінші unit үшін pattern не logo таңдалады ===
+    unsigned int tex1 = loadTexture(ASSET_DIR "/container.png");
+    unsigned int tex2 = loadTexture(ASSET_DIR "/pattern.png");
+    unsigned int logo = loadTexture(ASSET_DIR "/logo.png");
+    if (tex1 == 0 || tex2 == 0 || logo == 0) {
+        glDeleteTextures(1, &tex1);
+        glDeleteTextures(1, &tex2);
+        glDeleteTextures(1, &logo);
         glDeleteVertexArrays(1, &vao);
         glDeleteBuffers(1, &vbo);
         glDeleteProgram(shader);
@@ -489,8 +612,14 @@ int main() {
         glfwTerminate();
         return -1;
     }
+    std::cout << "tex1 = " << tex1 << " tex2 = " << tex2 << " logo = " << logo << "\n";
     glUseProgram(shader);
-    glUniform1i(glGetUniformLocation(shader, "ourTexture"), 0); // объект id емес, unit 0
+    int locTexture1 = glGetUniformLocation(shader, "texture1");
+    int locTexture2 = glGetUniformLocation(shader, "texture2");
+    int blendLoc = glGetUniformLocation(shader, "blend");
+    int modeLoc = glGetUniformLocation(shader, "blendMode");
+    glUniform1i(locTexture1, 0);     // unit нөмірлері, текстура объектілерінің ID-і емес
+    glUniform1i(locTexture2, 1);
 
     // === 7-АПТА: үш uniform-ның орнын цикл алдында БІР РЕТ табамыз ===
     int locModel = glGetUniformLocation(shader, "uModel");
@@ -540,10 +669,12 @@ int main() {
         // Жиілігі 10 Гц: native терезе тақырыбын әр кадрда өзгертпеу.
         static double titleTimer = -1.0;
         if (now - titleTimer >= 0.1) {
-            char title[192];
+            char title[256];
             std::snprintf(title, sizeof(title),
-                          "Week 11 | yaw=%.1f pitch=%.1f fov=%.1f | sens=%.2f | invertY=%s",
-                          yaw, pitch, fov, sensitivity, invertY ? "ON" : "OFF");
+                          "Week 12 | %s | blend=%.2f | yaw=%.1f pitch=%.1f fov=%.1f%s%s",
+                          BLEND_MODE_NAMES[blendMode], blend, yaw, pitch, fov,
+                          brokenTextureUnits ? " | BROKEN UNITS (F1)" : "",
+                          wrongSamplerId ? " | WRONG ID (F2)" : "");
             glfwSetWindowTitle(window, title);
             titleTimer = now;
         }
@@ -559,8 +690,9 @@ int main() {
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
         glUseProgram(shader);
-        glActiveTexture(GL_TEXTURE0);
-        glBindTexture(GL_TEXTURE_2D, texture);
+        bindSceneTextures(tex1, tex2, logo, locTexture2);
+        glUniform1f(blendLoc, blend);
+        glUniform1i(modeLoc, blendMode);
 
         // --- Матрицалар: цикл ІШІНДЕ құрылады ---
         float aspect = (gHeight > 0) ? (float)gWidth / (float)gHeight : 1.0f;
@@ -618,7 +750,9 @@ int main() {
     glDeleteVertexArrays(1, &vao);
     glDeleteBuffers(1, &vbo);
     glDeleteProgram(shader);
-    glDeleteTextures(1, &texture);
+    glDeleteTextures(1, &tex1);
+    glDeleteTextures(1, &tex2);
+    glDeleteTextures(1, &logo);
 
     glfwTerminate();
     return 0;
@@ -798,4 +932,23 @@ int main() {
 //     Жүктеу қатесі толық жолымен шығады, бағдарлама ресурстарын босатады.
 //  9. Соңында GPU текстурасы glDeleteTextures арқылы жойылады.
 //     Камера, MVP, тереңдік тесті, culling және бес кубтың анимациясы сақталды.
+// =====================================================================
+
+// =====================================================================
+//  12-АПТА (екі текстура, texture units, араластыру) — орындалды
+//
+//  Базалық: texture1 = 0, texture2 = 1, glUniform1i glUseProgram-нан кейін.
+//   Әр кадрда glActiveTexture -> glBindTexture екі unit үшін де орындалады.
+//   Up/Down blend-ті 0.5 * dt-мен өзгертеді, шегі 0..1. Uniform әр кадрда.
+//   Анимация жылдамдығы Page Up/Page Down пернелеріне көшірілді.
+//  1-тапсырма: F1 — unit 0-ге екі bind, unit 1 бос; қайта F1 — түзету.
+//   blend = 0: pattern, blend = 1: бос sampler-ден қара түс (GPU-да тексерілді).
+//  2-тапсырма: F2 — texture2 sampler-іне unit орнына ID беру; қайта F2 — түзету.
+//   ID-лер және нақты unit байланыстары консольге шығады; ID != unit.
+//  3-тапсырма: 4/5/6/7 — mix, multiply, add, clamped add.
+//   RGBA8 framebuffer add нәтижесін де шектейді, сондықтан 6/7 бірдей көрінуі мүмкін.
+//  4-тапсырма: 8 — unit 1-ге RGBA logo, mix(base, decal, decal.a).
+//  5-тапсырма: 9 — vTexCoord.y, 0 — smoothstep(0.3, 0.7, vTexCoord.y).
+//  F3 — дұрыс байланыстар, mix және blend = 0.5; P — толық күй.
+//  docs/week12/README.md: қорғауға жауаптар, GPU тексеру журналы және 12 кадр.
 // =====================================================================
