@@ -4,13 +4,13 @@
 //  Бұл файл семестр бойы өседі. Әр аптада жаңа бөлік қосылады,
 //  ескісі орнында қалады. Аптаның соңында:
 //
-//      git add main.cpp assets/pattern.png assets/logo.png docs/week12/
-//      git commit -m "week12: multiple textures, texture units, blending"
-//      git tag week12 && git push origin main --tags
+//      git add main.cpp docs/week13/
+//      git commit -m "week13: normals, Lambert, ambient + diffuse, normal matrix"
+//      git tag week13 && git push origin main --tags
 //
 //  Тег арқылы кез келген аптадағы күйге қайта оралуға болады.
 //
-//  Қазіргі күйі: 12-АПТА — екі текстура, mix, альфа және UV ауысуы.
+//  Қазіргі күйі: 13-АПТА — нормальдар, Lambert, ambient + diffuse.
 //                Сол бес куб, еркін камера мен бұрынғы басқару сақталған.
 // =====================================================================
 
@@ -48,7 +48,7 @@ bool  whiteBackground = false;
 float speed = 1.0f;
 
 // === 12-АПТА: екі текстураны араластыру ===
-float blend = 0.5f;                 // Up/Down: секундына 0.5, шегі 0..1
+float blend = 0.0f;                 // Up/Down: секундына 0.5, шегі 0..1
 enum BlendMode { MIX_MODE, MULTIPLY_MODE, ADD_MODE, CLAMP_ADD_MODE,
                  DECAL_MODE, GRADIENT_MODE, SMOOTHSTEP_MODE, BLEND_MODE_COUNT };
 int blendMode = MIX_MODE;
@@ -59,6 +59,21 @@ const char* const BLEND_MODE_NAMES[] = {
 bool brokenTextureUnits = false;
 bool wrongSamplerId = false;
 bool reportTextureState = true;
+
+// === 13-АПТА: жарық эксперименттері (J/K — келесі/алдыңғы) ===
+enum LightingMode { BASIC_LIGHTING, ORBIT_LIGHTING, NO_MAX_LIGHTING,
+                    WRONG_NORMAL_LIGHTING, RIGHT_NORMAL_LIGHTING,
+                    AMBIENT_LIGHTING, GOURAUD_LIGHTING, PHONG_LIGHTING,
+                    LIGHTING_MODE_COUNT };
+int lightingMode = ORBIT_LIGHTING;
+const char* const LIGHTING_MODE_NAMES[] = {
+    "basic Lambert", "orbiting light", "NO MAX (intentional)",
+    "WRONG normal matrix", "inverse transpose", "ambient control",
+    "Gouraud (per vertex)", "Phong shading (per fragment)"
+};
+float ambientStrength = 0.1f;
+bool animateObjects = false;       // V: орбитадағы жарықты айналмайтын кубта байқау оңай
+const glm::vec3 lightColor(1.0f);
 
 // === 9-АПТА: камера күйі — цикл сыртында сақталады ===
 glm::vec3 camPos   = glm::vec3(0.0f, 0.0f, 3.0f);
@@ -92,60 +107,60 @@ const bool   ZFIGHT_DEMO    = false;
 // 3-тапсырма: GL_FRONT қылып диагноз қой (GL_BACK — қалыпты күй).
 const GLenum CULL_MODE      = GL_BACK;
 
-// === 11-АПТА: бір вершинаға 5 float: позиция (xyz) + UV (uv) ===
+// === 13-АПТА: 8 float: позиция (xyz) + UV (uv) + нормаль (xyz) ===
 // Куб: 6 жақ x 2 үшбұрыш x 3 вершина = 36 вершина.
 // Әр жақтың екі үшбұрышы сырттан қарағанда CCW, текстура толық жайылады:
 // UV: (0,0) (1,0) (1,1), (0,0) (1,1) (0,1).
 float vertices[] = {
     // артқы жақ (-Z)
-     0.5f, -0.5f, -0.5f,  0.0f, 0.0f,
-    -0.5f, -0.5f, -0.5f,  1.0f, 0.0f,
-    -0.5f,  0.5f, -0.5f,  1.0f, 1.0f,
-     0.5f, -0.5f, -0.5f,  0.0f, 0.0f,
-    -0.5f,  0.5f, -0.5f,  1.0f, 1.0f,
-     0.5f,  0.5f, -0.5f,  0.0f, 1.0f,
+     0.5f, -0.5f, -0.5f,  0.0f, 0.0f,  0.0f, 0.0f, -1.0f,
+    -0.5f, -0.5f, -0.5f,  1.0f, 0.0f,  0.0f, 0.0f, -1.0f,
+    -0.5f,  0.5f, -0.5f,  1.0f, 1.0f,  0.0f, 0.0f, -1.0f,
+     0.5f, -0.5f, -0.5f,  0.0f, 0.0f,  0.0f, 0.0f, -1.0f,
+    -0.5f,  0.5f, -0.5f,  1.0f, 1.0f,  0.0f, 0.0f, -1.0f,
+     0.5f,  0.5f, -0.5f,  0.0f, 1.0f,  0.0f, 0.0f, -1.0f,
 
     // алдыңғы жақ (+Z)
-    -0.5f, -0.5f,  0.5f,  0.0f, 0.0f,
-     0.5f, -0.5f,  0.5f,  1.0f, 0.0f,
-     0.5f,  0.5f,  0.5f,  1.0f, 1.0f,
-    -0.5f, -0.5f,  0.5f,  0.0f, 0.0f,
-     0.5f,  0.5f,  0.5f,  1.0f, 1.0f,
-    -0.5f,  0.5f,  0.5f,  0.0f, 1.0f,
+    -0.5f, -0.5f,  0.5f,  0.0f, 0.0f,  0.0f, 0.0f, 1.0f,
+     0.5f, -0.5f,  0.5f,  1.0f, 0.0f,  0.0f, 0.0f, 1.0f,
+     0.5f,  0.5f,  0.5f,  1.0f, 1.0f,  0.0f, 0.0f, 1.0f,
+    -0.5f, -0.5f,  0.5f,  0.0f, 0.0f,  0.0f, 0.0f, 1.0f,
+     0.5f,  0.5f,  0.5f,  1.0f, 1.0f,  0.0f, 0.0f, 1.0f,
+    -0.5f,  0.5f,  0.5f,  0.0f, 1.0f,  0.0f, 0.0f, 1.0f,
 
     // сол жақ (-X)
-    -0.5f, -0.5f, -0.5f,  0.0f, 0.0f,
-    -0.5f, -0.5f,  0.5f,  1.0f, 0.0f,
-    -0.5f,  0.5f,  0.5f,  1.0f, 1.0f,
-    -0.5f, -0.5f, -0.5f,  0.0f, 0.0f,
-    -0.5f,  0.5f,  0.5f,  1.0f, 1.0f,
-    -0.5f,  0.5f, -0.5f,  0.0f, 1.0f,
+    -0.5f, -0.5f, -0.5f,  0.0f, 0.0f,  -1.0f, 0.0f, 0.0f,
+    -0.5f, -0.5f,  0.5f,  1.0f, 0.0f,  -1.0f, 0.0f, 0.0f,
+    -0.5f,  0.5f,  0.5f,  1.0f, 1.0f,  -1.0f, 0.0f, 0.0f,
+    -0.5f, -0.5f, -0.5f,  0.0f, 0.0f,  -1.0f, 0.0f, 0.0f,
+    -0.5f,  0.5f,  0.5f,  1.0f, 1.0f,  -1.0f, 0.0f, 0.0f,
+    -0.5f,  0.5f, -0.5f,  0.0f, 1.0f,  -1.0f, 0.0f, 0.0f,
 
     // оң жақ (+X)
-     0.5f, -0.5f,  0.5f,  0.0f, 0.0f,
-     0.5f, -0.5f, -0.5f,  1.0f, 0.0f,
-     0.5f,  0.5f, -0.5f,  1.0f, 1.0f,
-     0.5f, -0.5f,  0.5f,  0.0f, 0.0f,
-     0.5f,  0.5f, -0.5f,  1.0f, 1.0f,
-     0.5f,  0.5f,  0.5f,  0.0f, 1.0f,
+     0.5f, -0.5f,  0.5f,  0.0f, 0.0f,  1.0f, 0.0f, 0.0f,
+     0.5f, -0.5f, -0.5f,  1.0f, 0.0f,  1.0f, 0.0f, 0.0f,
+     0.5f,  0.5f, -0.5f,  1.0f, 1.0f,  1.0f, 0.0f, 0.0f,
+     0.5f, -0.5f,  0.5f,  0.0f, 0.0f,  1.0f, 0.0f, 0.0f,
+     0.5f,  0.5f, -0.5f,  1.0f, 1.0f,  1.0f, 0.0f, 0.0f,
+     0.5f,  0.5f,  0.5f,  0.0f, 1.0f,  1.0f, 0.0f, 0.0f,
 
     // төменгі жақ (-Y)
-    -0.5f, -0.5f, -0.5f,  0.0f, 0.0f,
-     0.5f, -0.5f, -0.5f,  1.0f, 0.0f,
-     0.5f, -0.5f,  0.5f,  1.0f, 1.0f,
-    -0.5f, -0.5f, -0.5f,  0.0f, 0.0f,
-     0.5f, -0.5f,  0.5f,  1.0f, 1.0f,
-    -0.5f, -0.5f,  0.5f,  0.0f, 1.0f,
+    -0.5f, -0.5f, -0.5f,  0.0f, 0.0f,  0.0f, -1.0f, 0.0f,
+     0.5f, -0.5f, -0.5f,  1.0f, 0.0f,  0.0f, -1.0f, 0.0f,
+     0.5f, -0.5f,  0.5f,  1.0f, 1.0f,  0.0f, -1.0f, 0.0f,
+    -0.5f, -0.5f, -0.5f,  0.0f, 0.0f,  0.0f, -1.0f, 0.0f,
+     0.5f, -0.5f,  0.5f,  1.0f, 1.0f,  0.0f, -1.0f, 0.0f,
+    -0.5f, -0.5f,  0.5f,  0.0f, 1.0f,  0.0f, -1.0f, 0.0f,
 
     // жоғарғы жақ (+Y)
-    -0.5f,  0.5f,  0.5f,  0.0f, 0.0f,
-     0.5f,  0.5f,  0.5f,  1.0f, 0.0f,
-     0.5f,  0.5f, -0.5f,  1.0f, 1.0f,
-    -0.5f,  0.5f,  0.5f,  0.0f, 0.0f,
-     0.5f,  0.5f, -0.5f,  1.0f, 1.0f,
-    -0.5f,  0.5f, -0.5f,  0.0f, 1.0f
+    -0.5f,  0.5f,  0.5f,  0.0f, 0.0f,  0.0f, 1.0f, 0.0f,
+     0.5f,  0.5f,  0.5f,  1.0f, 0.0f,  0.0f, 1.0f, 0.0f,
+     0.5f,  0.5f, -0.5f,  1.0f, 1.0f,  0.0f, 1.0f, 0.0f,
+    -0.5f,  0.5f,  0.5f,  0.0f, 0.0f,  0.0f, 1.0f, 0.0f,
+     0.5f,  0.5f, -0.5f,  1.0f, 1.0f,  0.0f, 1.0f, 0.0f,
+    -0.5f,  0.5f, -0.5f,  0.0f, 1.0f,  0.0f, 1.0f, 0.0f
 };
-static_assert(sizeof(vertices) / sizeof(float) == 36 * 5, "36 vertices: xyz + UV");
+static_assert(sizeof(vertices) / sizeof(float) == 36 * 8, "36 vertices: xyz + UV + normal");
 
 // === 8-АПТА: бес куб — позициялар массиві ===
 glm::vec3 positions[] = {
@@ -156,27 +171,100 @@ glm::vec3 positions[] = {
     glm::vec3(-2.2f,  1.0f, -4.0f)
 };
 
+glm::vec3 sceneLightPosition(double time) {
+    if (lightingMode == ORBIT_LIGHTING)
+        return glm::vec3(1.5f * std::sin(static_cast<float>(time)), 1.0f,
+                         1.5f * std::cos(static_cast<float>(time)));
+    if (lightingMode == NO_MAX_LIGHTING) return glm::vec3(0.0f, 0.0f, -3.0f);
+    if (lightingMode == GOURAUD_LIGHTING || lightingMode == PHONG_LIGHTING)
+        return glm::vec3(0.0f, 0.0f, 1.2f);
+    return glm::vec3(1.2f, 1.0f, 2.0f);
+}
+
+glm::mat4 sceneModel(int index, float angle) {
+    glm::mat4 model = glm::translate(glm::mat4(1.0f), positions[index]);
+    if (index == 0 && (lightingMode == WRONG_NORMAL_LIGHTING ||
+                       lightingMode == RIGHT_NORMAL_LIGHTING)) {
+        // GLM: S * R — алдымен Z бойынша 45 градус, содан кейін Y бойынша созу.
+        model = glm::scale(model, glm::vec3(1.0f, 2.5f, 1.0f));
+        return glm::rotate(model, glm::radians(45.0f), glm::vec3(0.0f, 0.0f, 1.0f));
+    }
+    if (lightingMode == GOURAUD_LIGHTING || lightingMode == PHONG_LIGHTING ||
+        lightingMode == NO_MAX_LIGHTING) return model;
+    const float rotation = lightingMode == ORBIT_LIGHTING && animateObjects ? angle : 0.7f;
+    return glm::rotate(model, rotation * (0.5f + index * 0.3f), glm::vec3(0.3f, 1.0f, 0.0f));
+}
+
+glm::mat3 sceneNormalMatrix(const glm::mat4& model, int index) {
+    if (index == 0 && lightingMode == WRONG_NORMAL_LIGHTING)
+        return glm::mat3(model);   // тек 3-тапсырманың қате нұсқасында
+    return glm::transpose(glm::inverse(glm::mat3(model)));
+}
+
+void selectLightingMode(int mode) {
+    lightingMode = (mode + LIGHTING_MODE_COUNT) % LIGHTING_MODE_COUNT;
+    ambientStrength = lightingMode == NO_MAX_LIGHTING ? 0.4f : 0.1f;
+    // Одинаковая камера для каждой пары сравнения; растянутый куб помещается целиком.
+    if (lightingMode == WRONG_NORMAL_LIGHTING || lightingMode == RIGHT_NORMAL_LIGHTING ||
+        lightingMode == GOURAUD_LIGHTING || lightingMode == PHONG_LIGHTING) {
+        const bool stretched = lightingMode == WRONG_NORMAL_LIGHTING || lightingMode == RIGHT_NORMAL_LIGHTING;
+        camPos = stretched ? glm::vec3(3.5f, 2.0f, 6.0f) : glm::vec3(0.0f, 0.0f, 3.0f);
+        camFront = glm::normalize(-camPos);
+        yaw = glm::degrees(std::atan2(camFront.z, camFront.x));
+        pitch = glm::degrees(std::asin(camFront.y));
+        firstMouse = true;
+    }
+    std::cout << "Lighting " << lightingMode + 1 << "/" << LIGHTING_MODE_COUNT
+              << ": " << LIGHTING_MODE_NAMES[lightingMode]
+              << " | ambient = " << ambientStrength << "\n";
+}
+
 // === 7-АПТА: вершина шейдері — үш матрица бір-біріне көбейтіледі ===
 // Назар: #version жолдың ЕҢ БІРІНШІ символынан басталуы керек.
 const char* vertexSrc = R"(#version 330 core
 layout (location = 0) in vec3 aPos;
 layout (location = 1) in vec2 aTexCoord;
+layout (location = 2) in vec3 aNormal;
 
 uniform mat4 uModel;
 uniform mat4 uView;
 uniform mat4 uProjection;
 
 out vec2 vTexCoord;
+out vec3 FragPos;
+out vec3 Normal;
+out vec3 LightResult;
+uniform mat3 normalMatrix;
+uniform vec3 lightPos;
+uniform vec3 lightColor;
+uniform float ambientStrength;
+uniform bool clampDiffuse;
 
 void main() {
-    gl_Position = uProjection * uView * uModel * vec4(aPos, 1.0);
+    FragPos = vec3(uModel * vec4(aPos, 1.0));
+    Normal = normalMatrix * aNormal;
     vTexCoord = aTexCoord;
+    gl_Position = uProjection * uView * vec4(FragPos, 1.0);
+    // Гуро нұсқасы: жарық төбелерде есептеліп, фрагментке интерполяцияланады.
+    vec3 norm = normalize(Normal);
+    vec3 lightDir = normalize(lightPos - FragPos);
+    float diffuse = dot(norm, lightDir);
+    if (clampDiffuse) diffuse = max(diffuse, 0.0);
+    LightResult = (ambientStrength + diffuse) * lightColor;
 }
 )";
 
 const char* fragmentSrc = R"(#version 330 core
 in vec2 vTexCoord;
+in vec3 FragPos;
+in vec3 Normal;
+in vec3 LightResult;
 out vec4 FragColor;
+uniform vec3 lightPos;
+uniform vec3 lightColor;
+uniform float ambientStrength;
+uniform bool clampDiffuse;
+uniform bool useGouraud;
 uniform sampler2D texture1;
 uniform sampler2D texture2;
 uniform float blend;
@@ -185,23 +273,49 @@ uniform int blendMode;
 void main() {
     vec4 a = texture(texture1, vTexCoord);
     vec4 b = texture(texture2, vTexCoord);
+    vec4 surface;
     if (blendMode == 1) {
-        FragColor = a * b;
+        surface = a * b;
     } else if (blendMode == 2) {
-        FragColor = a + b;
+        surface = a + b;
     } else if (blendMode == 3) {
-        FragColor = clamp(a + b, 0.0, 1.0);
+        surface = clamp(a + b, 0.0, 1.0);
     } else if (blendMode == 4) {
-        FragColor = mix(a, b, b.a);
+        surface = mix(a, b, b.a);
     } else if (blendMode == 5) {
-        FragColor = mix(a, b, vTexCoord.y);
+        surface = mix(a, b, vTexCoord.y);
     } else if (blendMode == 6) {
         float t = smoothstep(0.3, 0.7, vTexCoord.y);
-        FragColor = mix(a, b, t);
+        surface = mix(a, b, t);
     } else {
-        FragColor = mix(a, b, blend);
+        surface = mix(a, b, blend);
     }
+    vec3 lighting = LightResult;
+    if (!useGouraud) {
+        // Lambert: нормаль мен жарық бағыты екеуі де әлем координаттарында.
+        vec3 norm = normalize(Normal);
+        vec3 lightDir = normalize(lightPos - FragPos);
+        float diffuse = dot(norm, lightDir);
+        if (clampDiffuse) diffuse = max(diffuse, 0.0);
+        lighting = (ambientStrength + diffuse) * lightColor;
+    }
+    FragColor = vec4(lighting * surface.rgb, surface.a);
 }
+)";
+
+// Қосымша Қ1: жарық көзін сол VAO-мен кішкентай ақ куб ретінде көрсету.
+const char* lampVertexSrc = R"(#version 330 core
+layout (location = 0) in vec3 aPos;
+uniform mat4 uModel;
+uniform mat4 uView;
+uniform mat4 uProjection;
+void main() {
+    gl_Position = uProjection * uView * uModel * vec4(aPos, 1.0);
+}
+)";
+const char* lampFragmentSrc = R"(#version 330 core
+out vec4 FragColor;
+void main() { FragColor = vec4(1.0); }
 )";
 
 // === 11-АПТА: суретті CPU-ға оқу, GPU-ға көшіру, mipmap құру ===
@@ -413,6 +527,24 @@ void processInput(GLFWwindow* window, float dt) {
     if (glfwGetKey(window, GLFW_KEY_2) == GLFW_PRESS) sensitivity = DEFAULT_SENSITIVITY;
     if (glfwGetKey(window, GLFW_KEY_3) == GLFW_PRESS) sensitivity = 0.5f;
 
+    // === 13-АПТА: Mac-та F пернелерін қажет етпейтін басқару ===
+    if (keyPressedOnce(window, GLFW_KEY_J)) selectLightingMode(lightingMode + 1);
+    if (keyPressedOnce(window, GLFW_KEY_K)) selectLightingMode(lightingMode - 1);
+    if (keyPressedOnce(window, GLFW_KEY_H)) {
+        selectLightingMode(ORBIT_LIGHTING);
+        blend = 0.0f;
+        blendMode = MIX_MODE;
+        brokenTextureUnits = false;
+        wrongSamplerId = false;
+        animateObjects = false;
+        reportTextureState = true;
+    }
+    if (keyPressedOnce(window, GLFW_KEY_V)) animateObjects = !animateObjects;
+    if (glfwGetKey(window, GLFW_KEY_O) == GLFW_PRESS) ambientStrength += 0.3f * dt;
+    if (glfwGetKey(window, GLFW_KEY_L) == GLFW_PRESS) ambientStrength -= 0.3f * dt;
+    if (ambientStrength < 0.0f) ambientStrength = 0.0f;
+    if (ambientStrength > 0.5f) ambientStrength = 0.5f;
+
     // === 12-АПТА: 4..0 — жеті шейдер нұсқасын қайта құрастырмай салыстыру ===
     const int modeKeys[] = {GLFW_KEY_4, GLFW_KEY_5, GLFW_KEY_6, GLFW_KEY_7,
                            GLFW_KEY_8, GLFW_KEY_9, GLFW_KEY_0};
@@ -500,6 +632,8 @@ void processInput(GLFWwindow* window, float dt) {
                       yaw, pitch, fov, glm::length(camFront), sensitivity,
                       invertY ? "ON" : "OFF");
         std::cout << state;
+        std::cout << "Lighting: " << LIGHTING_MODE_NAMES[lightingMode]
+                  << " | ambient = " << ambientStrength << " | animate cubes = " << animateObjects << "\n";
         std::cout << "blend = " << blend << " mode = " << BLEND_MODE_NAMES[blendMode]
                   << " brokenUnits = " << brokenTextureUnits
                   << " wrongSamplerId = " << wrongSamplerId << "\n";
@@ -570,7 +704,9 @@ int main() {
                  "Up/Down: blend | 4: mix | 5: multiply | 6: add | 7: clamped add\n"
                  "8: alpha logo | 9: UV gradient | 0: smoothstep\n"
                  "F1: broken units | F2: wrong sampler ID | F3: restore blending\n"
-                 "B: white background | O: orthographic (hold) | Esc: exit\n";
+                 "J/K: next/previous lighting experiment | O/L: ambient up/down\n"
+                 "H: restore lighting | V: animate cubes in orbit mode\n"
+                 "B: white background | Q: orthographic (hold) | Esc: exit\n";
 
     // Бастапқы өлшем (Retina экранда framebuffer терезеден үлкен болады)
     glfwGetFramebufferSize(window, &gWidth, &gHeight);
@@ -586,11 +722,13 @@ int main() {
     glBindBuffer(GL_ARRAY_BUFFER, vbo);
     glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
 
-    const int STRIDE = 5 * sizeof(float);
+    const int STRIDE = 8 * sizeof(float);
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, STRIDE, (void*)0);
     glEnableVertexAttribArray(0);
     glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, STRIDE, (void*)(3 * sizeof(float)));
     glEnableVertexAttribArray(1);
+    glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, STRIDE, (void*)(5 * sizeof(float)));
+    glEnableVertexAttribArray(2);
 
     glBindVertexArray(0);
 
@@ -620,6 +758,17 @@ int main() {
     int modeLoc = glGetUniformLocation(shader, "blendMode");
     glUniform1i(locTexture1, 0);     // unit нөмірлері, текстура объектілерінің ID-і емес
     glUniform1i(locTexture2, 1);
+
+    int locNormal = glGetUniformLocation(shader, "normalMatrix");
+    int locLightPos = glGetUniformLocation(shader, "lightPos");
+    int locLightColor = glGetUniformLocation(shader, "lightColor");
+    int locAmbient = glGetUniformLocation(shader, "ambientStrength");
+    int locClamp = glGetUniformLocation(shader, "clampDiffuse");
+    int locGouraud = glGetUniformLocation(shader, "useGouraud");
+    unsigned int lampShader = makeShader(lampVertexSrc, lampFragmentSrc);
+    int lampLocModel = glGetUniformLocation(lampShader, "uModel");
+    int lampLocView = glGetUniformLocation(lampShader, "uView");
+    int lampLocProj = glGetUniformLocation(lampShader, "uProjection");
 
     // === 7-АПТА: үш uniform-ның орнын цикл алдында БІР РЕТ табамыз ===
     int locModel = glGetUniformLocation(shader, "uModel");
@@ -669,10 +818,11 @@ int main() {
         // Жиілігі 10 Гц: native терезе тақырыбын әр кадрда өзгертпеу.
         static double titleTimer = -1.0;
         if (now - titleTimer >= 0.1) {
-            char title[256];
+            char title[320];
             std::snprintf(title, sizeof(title),
-                          "Week 12 | %s | blend=%.2f | yaw=%.1f pitch=%.1f fov=%.1f%s%s",
-                          BLEND_MODE_NAMES[blendMode], blend, yaw, pitch, fov,
+                          "Week 13 | %d/%d %s | ambient=%.2f | %s blend=%.2f%s%s",
+                          lightingMode + 1, LIGHTING_MODE_COUNT, LIGHTING_MODE_NAMES[lightingMode],
+                          ambientStrength, BLEND_MODE_NAMES[blendMode], blend,
                           brokenTextureUnits ? " | BROKEN UNITS (F1)" : "",
                           wrongSamplerId ? " | WRONG ID (F2)" : "");
             glfwSetWindowTitle(window, title);
@@ -693,13 +843,19 @@ int main() {
         bindSceneTextures(tex1, tex2, logo, locTexture2);
         glUniform1f(blendLoc, blend);
         glUniform1i(modeLoc, blendMode);
+        const glm::vec3 lightPos = sceneLightPosition(glfwGetTime());
+        glUniform3fv(locLightPos, 1, glm::value_ptr(lightPos));
+        glUniform3fv(locLightColor, 1, glm::value_ptr(lightColor));
+        glUniform1f(locAmbient, ambientStrength);
+        glUniform1i(locClamp, lightingMode != NO_MAX_LIGHTING);
+        glUniform1i(locGouraud, lightingMode == GOURAUD_LIGHTING);
 
         // --- Матрицалар: цикл ІШІНДЕ құрылады ---
         float aspect = (gHeight > 0) ? (float)gWidth / (float)gHeight : 1.0f;
 
-        // PROJECTION: O пернесін басып тұрсаң — ортографиялық (7-апта, 2-тапсырма)
+        // PROJECTION: Q пернесін басып тұрсаң — ортографиялық (7-апта, 2-тапсырма)
         glm::mat4 projection;
-        if (glfwGetKey(window, GLFW_KEY_O) == GLFW_PRESS) {
+        if (glfwGetKey(window, GLFW_KEY_Q) == GLFW_PRESS) {
             projection = glm::ortho(-aspect, aspect, -1.0f, 1.0f, NEAR_PLANE, FAR_PLANE);
         } else {
             projection = glm::perspective(glm::radians(fov), aspect, NEAR_PLANE, FAR_PLANE);
@@ -720,24 +876,38 @@ int main() {
             // B кубы 180° бұрылған: оның артқы беті z = 0.501 -> A-мен дерлік беттеседі.
             // 11-аптадан бастап бұрынғы жасыл/қызыл түстің орнына текстура бар.
             glm::mat4 modelA = glm::mat4(1.0f);
+            const glm::mat3 normalA = glm::transpose(glm::inverse(glm::mat3(modelA)));
+            glUniformMatrix3fv(locNormal, 1, GL_FALSE, glm::value_ptr(normalA));
             glUniformMatrix4fv(locModel, 1, GL_FALSE, glm::value_ptr(modelA));
             glDrawArrays(GL_TRIANGLES, 0, 36);
 
             glm::mat4 modelB = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.0f, 0.001f));
             modelB = glm::rotate(modelB, glm::radians(180.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+            const glm::mat3 normalB = glm::transpose(glm::inverse(glm::mat3(modelB)));
+            glUniformMatrix3fv(locNormal, 1, GL_FALSE, glm::value_ptr(normalB));
             glUniformMatrix4fv(locModel, 1, GL_FALSE, glm::value_ptr(modelB));
             glDrawArrays(GL_TRIANGLES, 0, 36);
         } else {
             // === 8-АПТА: бес куб. model — цикл ІШІНДЕ жарияланады,
             // әйтпесе түрлендірулер үстемеленіп, кубтар ұшып кетеді.
             for (int i = 0; i < 5; i++) {
-                glm::mat4 model = glm::mat4(1.0f);
-                model = glm::translate(model, positions[i]);
-                model = glm::rotate(model, angle * (0.5f + i * 0.3f),
-                                    glm::vec3(0.3f, 1.0f, 0.0f));
+                const glm::mat4 model = sceneModel(i, angle);
+                const glm::mat3 normalMatrix = sceneNormalMatrix(model, i);
+                glUniformMatrix3fv(locNormal, 1, GL_FALSE, glm::value_ptr(normalMatrix));
                 glUniformMatrix4fv(locModel, 1, GL_FALSE, glm::value_ptr(model));
                 glDrawArrays(GL_TRIANGLES, 0, 36);
             }
+        }
+
+        // У Гуро/Фонга лампа скрыта, чтобы не закрывать центр сравниваемой грани.
+        if (lightingMode != GOURAUD_LIGHTING && lightingMode != PHONG_LIGHTING) {
+            glUseProgram(lampShader);
+            glm::mat4 lampModel = glm::translate(glm::mat4(1.0f), lightPos);
+            lampModel = glm::scale(lampModel, glm::vec3(0.1f));
+            glUniformMatrix4fv(lampLocModel, 1, GL_FALSE, glm::value_ptr(lampModel));
+            glUniformMatrix4fv(lampLocView, 1, GL_FALSE, glm::value_ptr(view));
+            glUniformMatrix4fv(lampLocProj, 1, GL_FALSE, glm::value_ptr(projection));
+            glDrawArrays(GL_TRIANGLES, 0, 36);
         }
 
         glfwSwapBuffers(window);   // дайын кадрды экранға шығару
@@ -750,6 +920,7 @@ int main() {
     glDeleteVertexArrays(1, &vao);
     glDeleteBuffers(1, &vbo);
     glDeleteProgram(shader);
+    glDeleteProgram(lampShader);
     glDeleteTextures(1, &tex1);
     glDeleteTextures(1, &tex2);
     glDeleteTextures(1, &logo);
@@ -951,4 +1122,16 @@ int main() {
 //  5-тапсырма: 9 — vTexCoord.y, 0 — smoothstep(0.3, 0.7, vTexCoord.y).
 //  F3 — дұрыс байланыстар, mix және blend = 0.5; P — толық күй.
 //  docs/week12/README.md: қорғауға жауаптар, GPU тексеру журналы және 12 кадр.
+// =====================================================================
+
+// =====================================================================
+//  13-АПТА — нормальдар, Lambert, ambient + diffuse, normal matrix
+//  36 вершина: xyz + UV + normal, stride = 8; атрибут 2: offset = 5 float.
+//  FragPos және жарық әлем координаттарында; нормаль әр фрагментте normalize.
+//  Әр куб үшін normalMatrix = transpose(inverse(mat3(model))) бөлек беріледі.
+//  J/K: basic, orbit, no max, wrong normal, right normal, ambient, Gouraud, Phong.
+//  O/L: ambient 0..0.5, 0.3 * dt; Q: бұрынғы ортография; H: жарықты қалпына келтіру.
+//  Қате max/normal тек арнайы экспериментте; бастапқы режимде екеуі де дұрыс.
+//  Қосымша: жарық орнында шағын ақ куб. V орбита режимінде кубтарды айналдырады.
+//  docs/week13/README.md — жауаптар, есептеулер, тексеру және GPU кадрлары.
 // =====================================================================

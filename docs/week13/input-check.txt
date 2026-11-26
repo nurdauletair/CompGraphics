@@ -1,0 +1,7 @@
+Lighting 4/8: WRONG normal matrix | ambient = 0.1
+Lighting 5/8: inverse transpose | ambient = 0.1
+Normals: wrong=(0.371391,0.928477,0) right=(0.928477,0.371391,0) angle=46.3972 deg
+Lighting 2/8: orbiting light | ambient = 0.1
+Lighting 3/8: NO MAX (intentional) | ambient = 0.4
+Lighting 2/8: orbiting light | ambient = 0.1
+PASS: 36 outward unit normals, inverse transpose orthogonality, moving light, O/L dt and limits, J/H/V key edges and restore

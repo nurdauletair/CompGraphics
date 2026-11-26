@@ -1,0 +1,32 @@
+OpenGL: 4.1 Metal - 91.7
+GPU: Apple M4
+/Users/nurdaulet/CompGraphics/assets/container.png 512x512 арна: 3
+/Users/nurdaulet/CompGraphics/assets/pattern.png 512x512 арна: 3
+/Users/nurdaulet/CompGraphics/assets/logo.png 512x512 арна: 4
+Lighting 1/8: basic Lambert | ambient = 0.1
+Capture: 01-basic | ambient=0.1 | light=(1.2,1,2)
+Lighting 2/8: orbiting light | ambient = 0.1
+Capture: 02-light-moving | ambient=0.1 | light=(0.719138,1,1.31637)
+Lighting 2/8: orbiting light | ambient = 0.1
+Capture: 02b-light-moving-later | ambient=0.1 | light=(0.897708,1,-1.20172)
+Lighting 3/8: NO MAX (intentional) | ambient = 0.4
+Capture: 03-no-max | ambient=0.4 | light=(0,0,-3)
+Lighting 3/8: NO MAX (intentional) | ambient = 0.4
+Capture: 03b-with-max | ambient=0.4 | light=(0,0,-3)
+Lighting 4/8: WRONG normal matrix | ambient = 0.1
+Capture: 04-wrong-normal | ambient=0.1 | light=(1.2,1,2)
+Lighting 5/8: inverse transpose | ambient = 0.1
+Capture: 05-right-normal | ambient=0.1 | light=(1.2,1,2)
+Lighting 6/8: ambient control | ambient = 0.1
+Capture: 06-ambient-0 | ambient=0 | light=(1.2,1,2)
+Lighting 6/8: ambient control | ambient = 0.1
+Capture: 06b-ambient-01 | ambient=0.1 | light=(1.2,1,2)
+Lighting 6/8: ambient control | ambient = 0.1
+Capture: 07-ambient-05 | ambient=0.5 | light=(1.2,1,2)
+Lighting 7/8: Gouraud (per vertex) | ambient = 0.1
+Capture: 08-gouraud | ambient=0.1 | light=(0,0,1.2)
+Lighting 8/8: Phong shading (per fragment) | ambient = 0.1
+Capture: 09-phong | ambient=0.1 | light=(0,0,1.2)
+Different buffers: orbit=1 normals=1 shading=1
+Center RGB sum: Gouraud=333 per-fragment=457
+PASS: 2 GPU shader programs, moving light, max removal, inverse-transpose visual difference, ambient monotonicity, per-fragment center brighter than Gouraud; 12 captures, no GL errors.
